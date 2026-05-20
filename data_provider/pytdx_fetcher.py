@@ -16,8 +16,8 @@ PytdxFetcher - 通达信数据源 (Priority 2)
 
 import logging
 import re
+import time
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Optional, Generator, List, Tuple
 
 import pandas as pd
@@ -29,10 +29,57 @@ from tenacity import (
     before_sleep_log,
 )
 
-from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS
+from .base import (
+    BaseFetcher,
+    DataFetchError,
+    DataSourceUnavailableError,
+    STANDARD_COLUMNS,
+    is_bse_code,
+    _is_hk_market,
+)
 import os
 
 logger = logging.getLogger(__name__)
+
+_PYTDX_CONNECTION_COOLDOWN_SECONDS = 15.0
+
+
+def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
+    """
+    从环境变量构建通达信服务器列表。
+
+    优先级：
+    1. PYTDX_SERVERS：逗号分隔 "ip:port,ip:port"（如 "192.168.1.1:7709,10.0.0.1:7709"）
+    2. PYTDX_HOST + PYTDX_PORT：单个服务器
+    3. 均未配置时返回 None（调用方使用 DEFAULT_HOSTS）
+    """
+    servers = os.getenv("PYTDX_SERVERS", "").strip()
+    if servers:
+        result = []
+        for part in servers.split(","):
+            part = part.strip()
+            if ":" in part:
+                host, port_str = part.rsplit(":", 1)
+                host, port_str = host.strip(), port_str.strip()
+                if host and port_str:
+                    try:
+                        result.append((host, int(port_str)))
+                    except ValueError:
+                        logger.warning(f"Invalid PYTDX_SERVERS entry: {part}")
+            else:
+                logger.warning(f"Invalid PYTDX_SERVERS entry (missing port): {part}")
+        if result:
+            return result
+
+    host = os.getenv("PYTDX_HOST", "").strip()
+    port_str = os.getenv("PYTDX_PORT", "").strip()
+    if host and port_str:
+        try:
+            return [(host, int(port_str))]
+        except ValueError:
+            logger.warning(f"Invalid PYTDX_HOST/PYTDX_PORT: {host}:{port_str}")
+
+    return None
 
 
 def _is_us_code(stock_code: str) -> bool:
@@ -80,20 +127,45 @@ class PytdxFetcher(BaseFetcher):
         ("59.173.18.140", 7709),   # 武汉
         ("180.153.39.51", 7709),   # 杭州
     ]
+    # Pytdx get_security_list returns at most 1000 items per page
+    SECURITY_LIST_PAGE_SIZE = 1000
     
     def __init__(self, hosts: Optional[List[Tuple[str, int]]] = None):
         """
         初始化 PytdxFetcher
-        
+
         Args:
-            hosts: 服务器列表 [(host, port), ...]，默认使用内置列表
+            hosts: 服务器列表 [(host, port), ...]。若未传入，优先使用环境变量
+                   PYTDX_SERVERS（ip:port,ip:port）或 PYTDX_HOST+PYTDX_PORT，
+                   否则使用内置 DEFAULT_HOSTS。
         """
-        self._hosts = hosts or self.DEFAULT_HOSTS
+        if hosts is not None:
+            self._hosts = hosts
+        else:
+            env_hosts = _parse_hosts_from_env()
+            self._hosts = env_hosts if env_hosts else self.DEFAULT_HOSTS
         self._api = None
         self._connected = False
         self._current_host_idx = 0
         self._stock_list_cache = None  # 股票列表缓存
         self._stock_name_cache = {}    # 股票名称缓存 {code: name}
+        self._unavailable_until = 0.0
+        self._last_unavailable_reason = ""
+
+    def _is_in_connection_cooldown(self) -> bool:
+        return time.time() < self._unavailable_until
+
+    def _mark_connection_cooldown(self, reason: str) -> None:
+        self._unavailable_until = time.time() + _PYTDX_CONNECTION_COOLDOWN_SECONDS
+        self._last_unavailable_reason = str(reason or "").strip()
+        logger.info(
+            "Pytdx 连接失败，进入冷却 %.0fs: %s",
+            _PYTDX_CONNECTION_COOLDOWN_SECONDS,
+            self._last_unavailable_reason or "unknown",
+        )
+
+    def is_available_for_request(self, capability: str = "") -> bool:
+        return not self._is_in_connection_cooldown()
     
     def _get_pytdx(self):
         """
@@ -122,6 +194,11 @@ class PytdxFetcher(BaseFetcher):
             with self._pytdx_session() as api:
                 # 在这里执行数据查询
         """
+        if self._is_in_connection_cooldown():
+            raise DataSourceUnavailableError(
+                f"Pytdx temporarily unavailable: {self._last_unavailable_reason or 'connection cooldown'}"
+            )
+
         TdxHq_API = self._get_pytdx()
         if TdxHq_API is None:
             raise DataFetchError("pytdx 库未安装")
@@ -146,6 +223,7 @@ class PytdxFetcher(BaseFetcher):
                     continue
             
             if not connected:
+                self._mark_connection_cooldown("Pytdx 无法连接任何服务器")
                 raise DataFetchError("Pytdx 无法连接任何服务器")
             
             yield api
@@ -186,6 +264,27 @@ class PytdxFetcher(BaseFetcher):
             return 1, code  # 上海
         else:
             return 0, code  # 深圳
+
+    def _build_stock_list_cache(self, api) -> None:
+        """
+        Build a full stock code -> name cache from paginated security lists.
+        """
+        self._stock_list_cache = {}
+
+        for market in (0, 1):
+            start = 0
+            while True:
+                stocks = api.get_security_list(market, start) or []
+                for stock in stocks:
+                    code = stock.get('code')
+                    name = stock.get('name')
+                    if code and name:
+                        self._stock_list_cache[code] = name
+
+                if len(stocks) < self.SECURITY_LIST_PAGE_SIZE:
+                    break
+
+                start += self.SECURITY_LIST_PAGE_SIZE
     
     @retry(
         stop=stop_after_attempt(3),
@@ -208,6 +307,16 @@ class PytdxFetcher(BaseFetcher):
         # 美股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
         if _is_us_code(stock_code):
             raise DataFetchError(f"PytdxFetcher 不支持美股 {stock_code}，请使用 AkshareFetcher 或 YfinanceFetcher")
+
+        # 港股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
+        if _is_hk_market(stock_code):
+            raise DataFetchError(f"PytdxFetcher 不支持港股 {stock_code}，请使用 AkshareFetcher")
+
+        # 北交所不支持，抛出异常让 DataFetcherManager 切换到其他数据源
+        if is_bse_code(stock_code):
+            raise DataFetchError(
+                f"PytdxFetcher 不支持北交所 {stock_code}，将自动切换其他数据源"
+            )
         
         market, code = self._get_market_code(stock_code)
         
@@ -294,6 +403,10 @@ class PytdxFetcher(BaseFetcher):
         Returns:
             股票名称，失败返回 None
         """
+        # 港股不支持（pytdx 不含港股数据）
+        if _is_hk_market(stock_code):
+            return None
+
         # 先检查缓存
         if stock_code in self._stock_name_cache:
             return self._stock_name_cache[stock_code]
@@ -304,13 +417,7 @@ class PytdxFetcher(BaseFetcher):
             with self._pytdx_session() as api:
                 # 获取股票列表（缓存）
                 if self._stock_list_cache is None:
-                    # 获取深圳和上海股票列表
-                    sz_stocks = api.get_security_list(0, 0)  # 深圳
-                    sh_stocks = api.get_security_list(1, 0)  # 上海
-                    
-                    self._stock_list_cache = {}
-                    for stock in (sz_stocks or []) + (sh_stocks or []):
-                        self._stock_list_cache[stock['code']] = stock['name']
+                    self._build_stock_list_cache(api)
                 
                 # 查找股票名称
                 name = self._stock_list_cache.get(code)
@@ -326,7 +433,7 @@ class PytdxFetcher(BaseFetcher):
                     return name
                 
         except Exception as e:
-            logger.warning(f"Pytdx 获取股票名称失败 {stock_code}: {e}")
+            logger.debug(f"Pytdx 获取股票名称失败 {stock_code}: {e}")
         
         return None
     
@@ -340,6 +447,10 @@ class PytdxFetcher(BaseFetcher):
         Returns:
             实时行情数据字典，失败返回 None
         """
+        if is_bse_code(stock_code):
+            raise DataFetchError(
+                f"PytdxFetcher 不支持北交所 {stock_code}，将自动切换其他数据源"
+            )
         try:
             market, code = self._get_market_code(stock_code)
             

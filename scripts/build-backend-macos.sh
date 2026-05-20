@@ -30,6 +30,9 @@ fi
 npm run build
 popd >/dev/null
 
+log "Verifying static asset references (source)..."
+"${PYTHON_BIN}" "${SCRIPT_DIR}/check_static_assets.py" "${ROOT_DIR}/static"
+
 log "Building backend executable..."
 if ! "${PYTHON_BIN}" -m PyInstaller --version >/dev/null 2>&1; then
   "${PYTHON_BIN}" -m pip install pyinstaller
@@ -38,13 +41,29 @@ fi
 log "Installing backend dependencies..."
 "${PYTHON_BIN}" -m pip install -r "${ROOT_DIR}/requirements.txt"
 
+log "Checking python-multipart availability..."
+"${PYTHON_BIN}" -c "import multipart, multipart.multipart"
+
 if [[ -d "${ROOT_DIR}/dist/backend" ]]; then
   rm -rf "${ROOT_DIR}/dist/backend"
 fi
 mkdir -p "${ROOT_DIR}/dist/backend"
 
+if [[ -d "${ROOT_DIR}/dist/stock_analysis" ]]; then
+  rm -rf "${ROOT_DIR}/dist/stock_analysis"
+fi
+
+if [[ -d "${ROOT_DIR}/build/stock_analysis" ]]; then
+  rm -rf "${ROOT_DIR}/build/stock_analysis"
+fi
+
 hidden_imports=(
+  "multipart"
+  "multipart.multipart"
   "json_repair"
+  "tiktoken"
+  "tiktoken_ext"
+  "tiktoken_ext.openai_public"
   "api"
   "api.app"
   "api.deps"
@@ -84,7 +103,7 @@ for module in "${hidden_imports[@]}"; do
 done
 
 pushd "${ROOT_DIR}" >/dev/null
-cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconsole --add-data "static:static")
+cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --noconsole --add-data "static:static" --collect-data litellm --collect-data tiktoken)
 cmd+=("${hidden_import_args[@]}" "main.py")
 
 echo "Running: ${cmd[*]}"
@@ -92,5 +111,16 @@ echo "Running: ${cmd[*]}"
 popd >/dev/null
 
 cp -R "${ROOT_DIR}/dist/stock_analysis" "${ROOT_DIR}/dist/backend/stock_analysis"
+
+log "Verifying static asset references (packaged)..."
+packaged_static="${ROOT_DIR}/dist/backend/stock_analysis/_internal/static"
+if [[ ! -d "${packaged_static}" ]]; then
+  packaged_static="${ROOT_DIR}/dist/backend/stock_analysis/static"
+fi
+if [[ -d "${packaged_static}" ]]; then
+  "${PYTHON_BIN}" "${SCRIPT_DIR}/check_static_assets.py" "${packaged_static}"
+else
+  log "WARNING: could not locate packaged static directory under dist/backend/stock_analysis; skipping post-package check."
+fi
 
 log "Backend build completed."

@@ -1,4 +1,38 @@
 import type React from 'react';
+import { cn } from '../../utils/cn';
+
+interface PageButtonProps {
+  page: number | string;
+  isActive?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  children?: React.ReactNode;
+}
+
+const PageButton: React.FC<PageButtonProps> = ({ page, isActive, disabled, onClick, children }) => {
+  const isEllipsis = page === '...';
+
+  if (isEllipsis) {
+    return <span className="px-3 py-2 text-muted-text">...</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex h-10 min-w-[2.5rem] items-center justify-center rounded-xl border px-3 text-sm font-medium transition-all duration-200',
+        isActive
+          ? 'border-cyan/30 bg-cyan text-slate-950 shadow-lg shadow-cyan/20'
+          : 'border-border/60 bg-elevated text-secondary-text hover:bg-hover hover:text-foreground',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+      )}
+    >
+      {children || page}
+    </button>
+  );
+};
 
 interface PaginationProps {
   currentPage: number;
@@ -8,7 +42,7 @@ interface PaginationProps {
 }
 
 /**
- * 分页组件 - 终端风格
+ * Pagination component with terminal-inspired styling.
  */
 export const Pagination: React.FC<PaginationProps> = ({
   currentPage,
@@ -18,7 +52,7 @@ export const Pagination: React.FC<PaginationProps> = ({
 }) => {
   if (totalPages <= 1) return null;
 
-  // 生成页码数组
+  // Build the page list with ellipsis placeholders.
   const getPageNumbers = (): (number | string)[] => {
     const pages: (number | string)[] = [];
     const delta = 2;
@@ -38,45 +72,9 @@ export const Pagination: React.FC<PaginationProps> = ({
     return pages;
   };
 
-  const PageButton: React.FC<{
-    page: number | string;
-    isActive?: boolean;
-    disabled?: boolean;
-    onClick?: () => void;
-    children?: React.ReactNode;
-  }> = ({ page, isActive, disabled, onClick, children }) => {
-    const isEllipsis = page === '...';
-
-    if (isEllipsis) {
-      return (
-        <span className="px-3 py-2 text-muted">...</span>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        className={`
-          min-w-[40px] h-10 px-3 rounded-lg font-medium
-          transition-all duration-200
-          hover:bg-hover hover:text-white border border-white/5
-          ${isActive
-            ? 'bg-cyan text-muted'
-            : 'bg-elevated text-secondary'
-          }
-          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-        `}
-      >
-        {children || page}
-      </button>
-    );
-  };
-
   return (
-    <div className={`flex items-center justify-center gap-2 ${className}`}>
-      {/* 上一页 */}
+    <div className={cn('flex items-center justify-center gap-2', className)}>
+      {/* Previous page */}
       <PageButton
         page="prev"
         disabled={currentPage === 1}
@@ -87,7 +85,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         </svg>
       </PageButton>
 
-      {/* 页码 */}
+      {/* Page numbers */}
       {getPageNumbers().map((page, index) => (
         <PageButton
           key={`${page}-${index}`}
@@ -97,7 +95,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         />
       ))}
 
-      {/* 下一页 */}
+      {/* Next page */}
       <PageButton
         page="next"
         disabled={currentPage === totalPages}

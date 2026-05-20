@@ -11,18 +11,43 @@
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-# ============================================================
-# 日志格式常量
-# ============================================================
 
-LOG_FORMAT = '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s'
-LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(pathname)s:%(lineno)d | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+_ALLOWED_LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+_DEFAULT_LITELLM_LOG_LEVEL = 'WARNING'
+
+
+class RelativePathFormatter(logging.Formatter):
+    """自定义 Formatter，输出相对路径而非绝对路径"""
+
+    def __init__(self, fmt=None, datefmt=None, relative_to=None):
+        super().__init__(fmt, datefmt)
+        self.relative_to = Path(relative_to) if relative_to else Path.cwd()
+
+    def format(self, record):
+        # 将绝对路径转为相对路径
+        try:
+            record.pathname = str(Path(record.pathname).relative_to(self.relative_to))
+        except ValueError:
+            # 如果无法转换为相对路径，保持原样
+            pass
+        return super().format(record)
+
+
 
 # 默认需要降低日志级别的第三方库
 DEFAULT_QUIET_LOGGERS = [
@@ -31,6 +56,28 @@ DEFAULT_QUIET_LOGGERS = [
     'google',
     'httpx',
 ]
+
+LITELLM_LOGGERS = [
+    'LiteLLM',
+    'LiteLLM Router',
+    'LiteLLM Proxy',
+    'litellm',
+]
+
+
+def _resolve_litellm_log_level(raw_level: Optional[str] = None) -> Tuple[int, Optional[str]]:
+    """Resolve LiteLLM logger level from env, returning invalid raw value if any."""
+    if raw_level is None:
+        raw_level = os.getenv('LITELLM_LOG_LEVEL', '')
+
+    normalized = (raw_level or '').strip().upper()
+    if not normalized:
+        normalized = _DEFAULT_LITELLM_LOG_LEVEL
+
+    level = _ALLOWED_LOG_LEVELS.get(normalized)
+    if level is None:
+        return _ALLOWED_LOG_LEVELS[_DEFAULT_LITELLM_LOG_LEVEL], raw_level
+    return level, None
 
 
 def setup_logging(
@@ -77,11 +124,15 @@ def setup_logging(
     # 清除已有 handler，避免重复添加
     if root_logger.handlers:
         root_logger.handlers.clear()
-
+    # 创建相对路径 Formatter（相对于项目根目录）
+    project_root = Path.cwd()
+    rel_formatter = RelativePathFormatter(
+        LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root
+    )
     # Handler 1: 控制台输出
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
-    console_handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
+    console_handler.setFormatter(rel_formatter)
     root_logger.addHandler(console_handler)
 
     # Handler 2: 常规日志文件（INFO 级别，10MB 轮转）
@@ -92,7 +143,7 @@ def setup_logging(
         encoding='utf-8'
     )
     file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
+    file_handler.setFormatter(rel_formatter)
     root_logger.addHandler(file_handler)
 
     # Handler 3: 调试日志文件（DEBUG 级别，包含所有详细信息）
@@ -103,7 +154,7 @@ def setup_logging(
         encoding='utf-8'
     )
     debug_handler.setLevel(logging.DEBUG)
-    debug_handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
+    debug_handler.setFormatter(rel_formatter)
     root_logger.addHandler(debug_handler)
 
     # 降低第三方库的日志级别
@@ -114,7 +165,33 @@ def setup_logging(
     for logger_name in quiet_loggers:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
-    # 输出初始化完成信息
-    logging.info(f"日志系统初始化完成，日志目录: {log_path.absolute()}")
-    logging.info(f"常规日志: {log_file}")
-    logging.info(f"调试日志: {debug_log_file}")
+    litellm_level, invalid_litellm_level = _resolve_litellm_log_level()
+    for logger_name in LITELLM_LOGGERS:
+        logging.getLogger(logger_name).setLevel(litellm_level)
+
+    # 输出初始化完成信息（使用相对路径）
+    try:
+        rel_log_path = log_path.resolve().relative_to(project_root)
+    except ValueError:
+        rel_log_path = log_path
+
+    try:
+        rel_log_file = log_file.resolve().relative_to(project_root)
+    except ValueError:
+        rel_log_file = log_file
+
+    try:
+        rel_debug_log_file = debug_log_file.resolve().relative_to(project_root)
+    except ValueError:
+        rel_debug_log_file = debug_log_file
+
+    logging.info(f"日志系统初始化完成，日志目录: {rel_log_path}")
+    logging.info(f"常规日志: {rel_log_file}")
+    logging.info(f"调试日志: {rel_debug_log_file}")
+    if invalid_litellm_level is not None:
+        logging.warning(
+            "LITELLM_LOG_LEVEL=%r 无效，已回退为 %s；可选值：%s",
+            invalid_litellm_level,
+            _DEFAULT_LITELLM_LOG_LEVEL,
+            ", ".join(_ALLOWED_LOG_LEVELS),
+        )

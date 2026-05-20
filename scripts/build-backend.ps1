@@ -8,21 +8,69 @@ if (!(Test-Path 'node_modules')) {
 npm run build
 Pop-Location
 
+$pythonBin = $env:PYTHON_BIN
+if ([string]::IsNullOrWhiteSpace($pythonBin)) {
+  $pythonBin = 'python'
+}
+
+Write-Host "Using Python: $pythonBin"
+
+Write-Host 'Verifying static asset references (source)...'
+& $pythonBin "${PSScriptRoot}\check_static_assets.py" 'static'
+if ($LASTEXITCODE -ne 0) {
+  throw "Static asset sanity check failed for source static/. See GitHub #1064."
+}
+
+function Test-PythonCode {
+  param(
+    [string]$Python,
+    [string]$Code
+  )
+
+  try {
+    & $Python -c $Code *> $null
+    return ($LASTEXITCODE -eq 0)
+  } catch {
+    return $false
+  }
+}
+
 Write-Host 'Building backend executable...'
-if (!(Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
-  python -m pip install pyinstaller
+if (-not (Test-PythonCode -Python $pythonBin -Code "import PyInstaller")) {
+  & $pythonBin -m pip install pyinstaller
 }
 
 Write-Host 'Installing backend dependencies...'
-python -m pip install -r requirements.txt
+& $pythonBin -m pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) {
+  throw "pip install -r requirements.txt failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Checking python-multipart availability...'
+if (-not (Test-PythonCode -Python $pythonBin -Code "import multipart, multipart.multipart")) {
+  throw 'python-multipart is not importable in the selected Python environment.'
+}
 
 if (Test-Path 'dist\backend') {
   Remove-Item -Recurse -Force 'dist\backend'
 }
 New-Item -ItemType Directory -Path 'dist\backend' | Out-Null
 
+if (Test-Path 'dist\stock_analysis') {
+  Remove-Item -Recurse -Force 'dist\stock_analysis'
+}
+
+if (Test-Path 'build\stock_analysis') {
+  Remove-Item -Recurse -Force 'build\stock_analysis'
+}
+
 $hiddenImports = @(
+  'multipart',
+  'multipart.multipart',
   'json_repair',
+  'tiktoken',
+  'tiktoken_ext',
+  'tiktoken_ext.openai_public',
   'api',
   'api.app',
   'api.deps',
@@ -55,12 +103,45 @@ $hiddenImports = @(
   'uvicorn.lifespan',
   'uvicorn.lifespan.on'
 )
-$hiddenImportArgs = ($hiddenImports | ForEach-Object { "--hidden-import=$_" }) -join ' '
+$hiddenImportArgs = $hiddenImports | ForEach-Object { "--hidden-import=$_" }
 
-$cmd = "pyinstaller --name stock_analysis --onedir --noconsole --add-data `"static;static`" $hiddenImportArgs main.py"
-Write-Host "Running: $cmd"
-Invoke-Expression $cmd
+$pyInstallerArgs = @(
+  '-m', 'PyInstaller',
+  '--name', 'stock_analysis',
+  '--onedir',
+  '--noconfirm',
+  '--noconsole',
+  '--add-data', 'static;static',
+  '--collect-data', 'litellm',
+  '--collect-data', 'tiktoken'
+)
+$pyInstallerArgs += $hiddenImportArgs
+$pyInstallerArgs += 'main.py'
+
+Write-Host "Running: $pythonBin $($pyInstallerArgs -join ' ')"
+& $pythonBin @pyInstallerArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "PyInstaller failed with exit code $LASTEXITCODE."
+}
+
+if (!(Test-Path 'dist\stock_analysis')) {
+  throw 'PyInstaller finished but dist\stock_analysis was not generated.'
+}
 
 Copy-Item -Path 'dist\stock_analysis' -Destination 'dist\backend\stock_analysis' -Recurse -Force
+
+Write-Host 'Verifying static asset references (packaged)...'
+$packagedStatic = Join-Path 'dist\backend\stock_analysis' '_internal\static'
+if (-not (Test-Path $packagedStatic)) {
+  $packagedStatic = Join-Path 'dist\backend\stock_analysis' 'static'
+}
+if (Test-Path $packagedStatic) {
+  & $pythonBin "${PSScriptRoot}\check_static_assets.py" $packagedStatic
+  if ($LASTEXITCODE -ne 0) {
+    throw "Static asset sanity check failed for packaged $packagedStatic. See GitHub #1064."
+  }
+} else {
+  Write-Warning "Could not locate packaged static directory under dist\backend\stock_analysis; skipping post-package check."
+}
 
 Write-Host 'Backend build completed.'
