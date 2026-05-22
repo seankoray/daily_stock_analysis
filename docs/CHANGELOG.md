@@ -11,27 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
-- [修复] 抽出 LiteLLM 生成参数适配层，对严格 temperature 模型按请求临时固定或省略参数，避免 GPT-5 / o 系列与 Kimi K2.6 拒绝默认温度请求。
-- [改进] LiteLLM 参数错误支持一次请求内自动修正重试，并在成功后进程内缓存策略，降低新模型参数兼容问题的人工配置成本。
-- [文档] 补充 Issue #1316 参数自愈改动的外部兼容依据、运行时配置清理边界与回滚证据；并在 `tests/test_system_config_service.py` 增加清理路径下 `LLM_TEMPERATURE` 保持不变的回归用例。
-- [文档] 补充严格 temperature 兼容语义的官方来源、运行时依赖约束与 `LLM_TEMPERATURE` 回退/不回写路径说明。
-- [改进] 告警中心 P2 新增后台评估 worker，schedule 模式可同时评估持久化 active rules 与 legacy JSON 规则，并记录 `triggered` / `skipped` / `degraded` / `failed` 最小评估历史。
-- [修复] 统一 Windows 桌面安装包与自动更新元数据文件名，避免 Release 中出现重复安装包并阻断 `latest.yml` 指向不存在附件。
-- [修复] 桌面端启动 WebUI 时为入口页增加 no-cache 响应头和版本化 cache-busting URL，避免安装新版后 Electron 继续复用旧 WebUI 缓存。
-- [文档] 扩展 Web 设置页帮助信息，补充 Agent 模型、LiteLLM fallback/config/temperature 与 LLM 渠道编辑器字段说明。
-- [新功能] 新增 Finnhub / AlphaVantage 美股数据源适配器，扩展美股日线 failover 链至 Finnhub(P2) -> AlphaVantage(P3) -> Yfinance(P4) -> Longbridge(P5)。
-- [修复] AlphaVantage 适配器在 newest-first 原始数据下 pct_chg 计算错误：改为先按日期升序排序再计算涨跌幅。
-- [修复] 美股日线路由未包含 Finnhub / AlphaVantage：扩展 `get_daily_data()` 美股分支的 source_order 以覆盖新增数据源。
-- [文档] 新增小白客户端安装与配置指南，说明桌面客户端下载、基础模型配置、新闻源配置和常见问题。
-- [新功能] Web 首页个股分析支持选择策略。
-- [新功能] 新增热点题材、事件驱动、成长质量和预期重估策略。
-- [新功能] Web 新增告警中心 MVP，支持现有三类告警规则的创建、列表、启停、删除、dry-run 测试和触发历史查看。
-- [新功能] 告警中心 P4 记录真实通知尝试结果，并为持久化规则新增可查询的业务冷却状态。
-- [修复] 持仓快照在当天刷新时优先使用实时行情重算当前价、市值与未实现盈亏，避免复用旧收盘价导致页面刷新后盈亏不变。
-- [新功能] 告警中心 P5 支持 MA、RSI、MACD、KDJ、CCI 日线技术指标规则，并复用现有触发历史、通知结果和持久化冷却链路。
-- [改进] 将 RSI 计算口径从 SMA 调整为 Wilder's EMA / SMMA，统一分析报告与告警阈值口径。
-- [改进] 大盘复盘将红绿灯与盘面温度合并为终端友好的盘面信号分数，移除色块进度条与重复温度行。
-- [改进] 大盘复盘近三日市场线索改为标题与来源链接列表，移除摘要片段，降低中英混排和误读风险。
+
+## [3.18.0] - 2026-05-21
+
+### 发布亮点
+
+- feat: 告警中心扩展到 P2-P6，补齐后台评估、真实通知结果、业务冷却、技术指标规则，以及自选股 / 持仓 / 账户联动规则。
+- feat: 个股分析支持策略选择，新增热点题材、事件驱动、成长质量和预期重估策略，并为 HK/US 报告补充基本面、财务摘要、股东回报和关联板块。
+- feat: 新增 Finnhub / AlphaVantage 美股数据源适配器，扩展美股日线 failover 链，提升美股行情获取韧性。
+- fix: 修复桌面端发布打包、分析状态接口、AlphaVantage 涨跌幅、持仓实时估值、告警历史去重、数据库冷启动和 fallback pricing 注册等稳定性问题。
+
+### What's Changed
+
+- feat: Add alert-center P2-P6, Web strategy selection, HK/US fundamental context, static-report financial sections, and Finnhub / AlphaVantage US-market fallback.
+- improve: Refine LiteLLM parameter recovery, yfinance currency/dividend handling, RSI calculation, market-review presentation, stock-news relevance ranking, and report table rendering.
+- fix: Harden desktop packaging/update assets, completed analysis-status responses, AlphaVantage pct_chg routing, portfolio realtime snapshots, alert trigger dedupe, DatabaseManager cold start, and fallback pricing registration.
+- docs/tests: Add beginner setup and settings-help docs, document compatibility/rollback boundaries, and extend regression coverage for API, alert, packaging, and release paths.
 
 ## [3.17.1] - 2026-05-16
 
@@ -1497,7 +1492,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.17.1...HEAD
+[Unreleased]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.18.0...HEAD
+[3.18.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.17.1...v3.18.0
 [3.17.1]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.17.0...v3.17.1
 [3.17.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.16.0...v3.17.0
 [3.16.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.15.0...v3.16.0

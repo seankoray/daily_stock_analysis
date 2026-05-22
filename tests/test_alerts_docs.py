@@ -166,6 +166,9 @@ def test_alerts_doc_defines_p4_notification_and_cooldown_scope() -> None:
         "## P4 通知结果与持久化冷却",
         "`alert_cooldowns`",
         "`alert_notifications`",
+        "`rule_id + target + data_source + data_timestamp`",
+        "同一数据点去重",
+        "`data_timestamp` 缺失时不做去重",
         "`__cooldown__`",
         "`__cooldown_read_failed__`",
         "`__noise_suppressed__`",
@@ -215,3 +218,48 @@ def test_alerts_doc_defines_p5_indicator_scope() -> None:
         "skip unsupported `alert_type`",
     ):
         assert token in doc
+
+
+def test_alerts_doc_defines_p6_portfolio_and_watchlist_scope() -> None:
+    doc = _read_doc()
+
+    for token in (
+        "## P6 持仓与自选股联动",
+        "P6 scope/type 矩阵",
+        "`watchlist`",
+        "`portfolio_holdings`",
+        "`portfolio_account`",
+        "`portfolio_stop_loss`",
+        "`portfolio_concentration`",
+        "`portfolio_drawdown`",
+        "`portfolio_price_stale`",
+        "Target Identity Contract",
+        "`effective_target`",
+        "`RuntimeAlertRule.key`",
+        "`{parent_key}|{effective_target}`",
+        "dry-run",
+        "`degraded_count`",
+        "soft cap",
+        "cooldown_active",
+        "父规则摘要",
+        "legacy `AGENT_EVENT_ALERT_RULES_JSON` 不支持 watchlist、portfolio",
+        "sector 级集中度",
+        "P6 PR",
+    ):
+        assert token in doc
+
+
+def test_changelog_mentions_alert_p6_release_note() -> None:
+    changelog = (PROJECT_ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "P6" in changelog
+    assert "自选股" in changelog
+    assert "持仓" in changelog
+    assert "账户联动规则" in changelog
+
+
+def test_changelog_unreleased_keeps_flat_entries() -> None:
+    changelog = (PROJECT_ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+
+    assert "\n### " not in unreleased
