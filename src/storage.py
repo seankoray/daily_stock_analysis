@@ -609,6 +609,21 @@ class ConversationMessage(Base):
     created_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class ConversationSummary(Base):
+    """Rolling summary for visible Agent chat history."""
+
+    __tablename__ = 'conversation_summaries'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(100), nullable=False, unique=True, index=True)
+    summary = Column(Text, nullable=False)
+    covered_message_id = Column(Integer, nullable=False, default=0)
+    source_message_count = Column(Integer, nullable=False, default=0)
+    estimated_tokens = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+
 class LLMUsage(Base):
     """One row per litellm.completion() call — token-usage audit log."""
 
@@ -1347,6 +1362,85 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             logger.error(f"保存分析历史失败: {e}")
             return 0
 
+    def update_analysis_history_diagnostics(
+        self,
+        *,
+        query_id: str,
+        code: Optional[str] = None,
+        diagnostics: Optional[Dict[str, Any]] = None,
+        notification_runs: Optional[List[Dict[str, Any]]] = None,
+    ) -> int:
+        """
+        更新已保存分析历史的运行诊断快照。
+
+        通知结果通常在分析历史落库后才产生，因此这里仅补写
+        context_snapshot.diagnostics，不改变报告正文或其它历史字段。
+        """
+        if not query_id or (diagnostics is None and not notification_runs):
+            return 0
+
+        try:
+            def _write(session: Session) -> int:
+                conditions = [AnalysisHistory.query_id == query_id]
+                if code:
+                    conditions.append(AnalysisHistory.code == code)
+
+                row = session.execute(
+                    select(AnalysisHistory)
+                    .where(and_(*conditions))
+                    .order_by(desc(AnalysisHistory.created_at))
+                    .limit(1)
+                ).scalars().first()
+                if row is None:
+                    return 0
+
+                context_snapshot: Dict[str, Any] = {}
+                if row.context_snapshot:
+                    try:
+                        parsed = json.loads(row.context_snapshot)
+                        if isinstance(parsed, dict):
+                            context_snapshot = parsed
+                    except Exception:
+                        context_snapshot = {}
+
+                if diagnostics is not None:
+                    context_snapshot["diagnostics"] = diagnostics
+                else:
+                    existing_diagnostics = context_snapshot.get("diagnostics")
+                    if not isinstance(existing_diagnostics, dict):
+                        existing_diagnostics = {
+                            "query_id": query_id,
+                            "stock_code": code,
+                            "notification_runs": [],
+                        }
+                    runs = existing_diagnostics.get("notification_runs")
+                    if not isinstance(runs, list):
+                        runs = []
+                    trace_id = existing_diagnostics.get("trace_id")
+                    for run in notification_runs or []:
+                        if isinstance(run, dict):
+                            run_payload = dict(run)
+                            if trace_id and not run_payload.get("trace_id"):
+                                run_payload["trace_id"] = trace_id
+                            runs.append(run_payload)
+                    existing_diagnostics["notification_runs"] = runs
+                    context_snapshot["diagnostics"] = existing_diagnostics
+                row.context_snapshot = self._safe_json_dumps(context_snapshot)
+                return 1
+
+            return self._run_write_transaction(
+                f"update_analysis_history_diagnostics[{query_id}:{code or '*'}]",
+                _write,
+            )
+        except Exception as e:
+            logger.warning(
+                "更新分析历史诊断快照失败（fail-open）: query_id=%s code=%s err=%s",
+                query_id,
+                code,
+                e,
+            )
+            return 0
+
     def get_analysis_history(
         self,
         code: Optional[str] = None,
@@ -2020,6 +2114,78 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             # 倒序返回，保证时间顺序
             return [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
 
+    def get_visible_conversation_messages(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return visible user/assistant conversation messages in chronological order."""
+        with self.session_scope() as session:
+            stmt = (
+                select(ConversationMessage)
+                .where(
+                    and_(
+                        ConversationMessage.session_id == session_id,
+                        ConversationMessage.role.in_(["user", "assistant"]),
+                    )
+                )
+                .order_by(ConversationMessage.created_at, ConversationMessage.id)
+            )
+            messages = session.execute(stmt).scalars().all()
+            return [
+                {
+                    "id": msg.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at,
+                }
+                for msg in messages
+                if msg.content
+            ]
+
+    def get_conversation_summary(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Return the rolling summary for a conversation session, if present."""
+        with self.session_scope() as session:
+            stmt = select(ConversationSummary).where(
+                ConversationSummary.session_id == session_id
+            )
+            row = session.execute(stmt).scalar_one_or_none()
+            if row is None:
+                return None
+            return {
+                "id": row.id,
+                "session_id": row.session_id,
+                "summary": row.summary,
+                "covered_message_id": row.covered_message_id,
+                "source_message_count": row.source_message_count,
+                "estimated_tokens": row.estimated_tokens,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+    def upsert_conversation_summary(
+        self,
+        session_id: str,
+        summary: str,
+        covered_message_id: int,
+        source_message_count: int,
+        estimated_tokens: int,
+    ) -> None:
+        """Create or update the rolling summary for a conversation session."""
+        with self.session_scope() as session:
+            now = datetime.now()
+            values = {
+                "session_id": session_id,
+                "summary": summary,
+                "covered_message_id": int(covered_message_id or 0),
+                "source_message_count": int(source_message_count or 0),
+                "estimated_tokens": int(estimated_tokens or 0),
+                "updated_at": now,
+            }
+            stmt = sqlite_insert(ConversationSummary).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["session_id"],
+                    set_=values,
+                )
+            )
+
     def conversation_session_exists(self, session_id: str) -> bool:
         """Return True when at least one message exists for the given session."""
         with self.session_scope() as session:
@@ -2138,6 +2304,11 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             删除的消息数
         """
         with self.session_scope() as session:
+            session.execute(
+                delete(ConversationSummary).where(
+                    ConversationSummary.session_id == session_id
+                )
+            )
             result = session.execute(
                 delete(ConversationMessage).where(
                     ConversationMessage.session_id == session_id
