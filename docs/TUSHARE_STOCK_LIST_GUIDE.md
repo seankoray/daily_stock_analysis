@@ -23,7 +23,7 @@ TUSHARE_API_URL=https://tu.brze.top
 TUSHARE_REQUEST_INTERVAL=0.6
 ```
 
-`TUSHARE_API_URL` 会在创建 Tushare Pro client 前替换 SDK 的请求地址；`TUSHARE_REQUEST_INTERVAL` 用于主程序内置 HTTP client 的最小请求间隔，代理渠道有频控要求时建议设为 `0.6`。
+`TUSHARE_API_URL` 会在创建 Tushare Pro client 前替换 SDK 的请求地址；主程序和股票列表脚本都会按该方式接入代理。`TUSHARE_REQUEST_INTERVAL` 用于 Tushare Pro 请求的最小间隔，代理渠道有频控要求时建议设为 `0.6`。
 
 ### 2. 运行脚本
 

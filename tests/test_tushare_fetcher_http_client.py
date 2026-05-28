@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import sys
+import types
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -23,7 +24,7 @@ if not json_repair_available and "json_repair" not in sys.modules:
 if "fake_useragent" not in sys.modules:
     sys.modules["fake_useragent"] = MagicMock()
 
-from data_provider.tushare_fetcher import TushareFetcher, _TushareHttpClient
+from data_provider.tushare_fetcher import TushareFetcher, _ThrottledTushareSdkClient, _TushareHttpClient
 
 
 class TestTushareHttpClient(unittest.TestCase):
@@ -113,10 +114,10 @@ class TestTushareHttpClient(unittest.TestCase):
 class TestTushareFetcherInit(unittest.TestCase):
     """Ensure fetcher initialization no longer depends on the tushare SDK package."""
 
-    def test_init_builds_http_client_when_token_present(self) -> None:
+    def test_init_builds_http_client_when_token_present_without_proxy_url(self) -> None:
         config = SimpleNamespace(
             tushare_token="demo-token",
-            tushare_api_url="https://tu.brze.top",
+            tushare_api_url=None,
             tushare_request_interval=0.6,
         )
 
@@ -124,10 +125,62 @@ class TestTushareFetcherInit(unittest.TestCase):
             fetcher = TushareFetcher()
 
         self.assertIsInstance(fetcher._api, _TushareHttpClient)
-        self.assertEqual(fetcher._api._api_url, "https://tu.brze.top")
+        self.assertEqual(fetcher._api._api_url, "http://api.tushare.pro")
         self.assertEqual(fetcher._api._request_interval, 0.6)
         self.assertTrue(fetcher.is_available())
         self.assertEqual(fetcher.priority, -1)
+
+    def test_init_builds_official_sdk_client_when_proxy_url_present(self) -> None:
+        config = SimpleNamespace(
+            tushare_token="demo-token",
+            tushare_api_url="https://tu.brze.top/",
+            tushare_request_interval=0.6,
+        )
+        sdk_client = MagicMock()
+        tushare_module = types.ModuleType("tushare")
+        tushare_module.pro_api = MagicMock(return_value=sdk_client)
+        pro_module = types.ModuleType("tushare.pro")
+        client_module = types.ModuleType("tushare.pro.client")
+
+        class DataApi:
+            _DataApi__http_url = "http://api.tushare.pro"
+
+        client_module.DataApi = DataApi
+        pro_module.client = client_module
+
+        with patch("data_provider.tushare_fetcher.get_config", return_value=config), patch.dict(
+            sys.modules,
+            {
+                "tushare": tushare_module,
+                "tushare.pro": pro_module,
+                "tushare.pro.client": client_module,
+            },
+        ):
+            fetcher = TushareFetcher()
+
+        self.assertIsInstance(fetcher._api, _ThrottledTushareSdkClient)
+        self.assertEqual(client_module.DataApi._DataApi__http_url, "https://tu.brze.top")
+        tushare_module.pro_api.assert_called_once_with("demo-token")
+        self.assertEqual(fetcher._api._client, sdk_client)
+        self.assertEqual(fetcher._api._request_interval, 0.6)
+        self.assertTrue(fetcher.is_available())
+        self.assertEqual(fetcher.priority, -1)
+
+    def test_sdk_client_wrapper_respects_minimum_request_interval(self) -> None:
+        sdk_client = MagicMock()
+        sdk_client.daily.return_value = "ok"
+        client = _ThrottledTushareSdkClient(sdk_client, request_interval=0.6)
+
+        with patch(
+            "data_provider.tushare_fetcher.time.monotonic",
+            side_effect=[100.0, 100.1, 100.6],
+        ), patch("data_provider.tushare_fetcher.time.sleep") as sleep_mock:
+            self.assertEqual(client.daily(ts_code="600519.SH"), "ok")
+            self.assertEqual(client.daily(ts_code="600519.SH"), "ok")
+
+        self.assertEqual(sdk_client.daily.call_count, 2)
+        sleep_mock.assert_called_once()
+        self.assertAlmostEqual(sleep_mock.call_args.args[0], 0.5)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [改进] Tushare Pro 支持通过 `TUSHARE_API_URL` 配置代理地址，并可用 `TUSHARE_REQUEST_INTERVAL` 控制最小请求间隔。
+- [修复] 主程序配置 `TUSHARE_API_URL` 时改用官方 `tushare` SDK 代理初始化方式，避免代理网关对内置 HTTP client 返回 404。
 - [改进] `scripts/fetch_tushare_stock_list.py` 可对 A 股中带 `XD`/`XR`/`DR`/`N`/`C` 前缀的名称进行回填修正，供自动补全刷新流程默认使用。
 - [修复] 股票自动补全索引生成缺少 `pypinyin` 时改为直接失败，避免写出缺失拼音字段的降级索引。
 - [修复] 归一腾讯实时行情成交量为股口径，避免量能变化倍数被放大并误导分析报告。

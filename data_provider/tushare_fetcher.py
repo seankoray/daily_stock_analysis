@@ -133,6 +133,39 @@ class _TushareHttpClient:
         return caller
 
 
+class _ThrottledTushareSdkClient:
+    """Apply project-level request throttling to an official tushare SDK client."""
+
+    def __init__(self, client: object, request_interval: float = 0.0) -> None:
+        self._client = client
+        self._request_interval = max(0.0, float(request_interval or 0.0))
+        self._last_request_at: Optional[float] = None
+
+    def _throttle(self) -> None:
+        if self._request_interval <= 0:
+            return
+
+        current_time = time.monotonic()
+        if self._last_request_at is not None:
+            elapsed = current_time - self._last_request_at
+            sleep_time = self._request_interval - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                current_time = time.monotonic()
+        self._last_request_at = current_time
+
+    def __getattr__(self, api_name: str):
+        target = getattr(self._client, api_name)
+        if not callable(target):
+            return target
+
+        def caller(*args, **kwargs):
+            self._throttle()
+            return target(*args, **kwargs)
+
+        return caller
+
+
 class TushareFetcher(BaseFetcher):
     """
     Tushare Pro 数据源实现
@@ -178,8 +211,8 @@ class TushareFetcher(BaseFetcher):
         初始化 Tushare API
 
         如果 Token 未配置，此数据源将不可用。
-        这里直接使用内置 HTTP client，避免运行时强依赖 tushare SDK，
-        从而减少 Docker / PyInstaller / 多虚拟环境场景下因缺包导致的初始化失败。
+        配置 TUSHARE_API_URL 时使用官方 tushare SDK 的代理 URL 替换方式；
+        未配置代理地址时保留内置 HTTP client，避免运行时强依赖 SDK。
         """
         config = get_config()
 
@@ -194,28 +227,58 @@ class TushareFetcher(BaseFetcher):
             logger.error(f"Tushare API 初始化失败: {e}")
             self._api = None
 
-    def _build_api_client(self, token: str) -> _TushareHttpClient:
+    def _build_api_client(self, token: str) -> object:
         """
-        Build a lightweight Tushare Pro client over direct HTTP requests.
+        Build a Tushare Pro client.
 
-        The project already normalizes all Pro calls through the same request
-        contract, so we do not need the official tushare SDK during runtime.
+        A custom TUSHARE_API_URL usually comes from proxy providers that patch
+        the official SDK endpoint before creating the Pro client. For that path
+        we follow the provider contract exactly. Without a custom URL, keep the
+        lightweight HTTP client as the default low-dependency runtime path.
         """
         config = get_config()
-        api_url = getattr(config, "tushare_api_url", None) or "http://api.tushare.pro"
+        api_url = (getattr(config, "tushare_api_url", None) or "").strip().rstrip("/")
         request_interval = getattr(config, "tushare_request_interval", 0.0) or 0.0
+
+        if api_url:
+            return self._build_sdk_api_client(
+                token=token,
+                api_url=api_url,
+                request_interval=request_interval,
+            )
 
         client = _TushareHttpClient(
             token=token,
-            api_url=api_url,
             request_interval=request_interval,
         )
         logger.debug(
-            "Tushare API client configured for direct HTTP calls: api_url=%s, request_interval=%.3fs",
-            api_url,
+            "Tushare API client configured for direct HTTP calls: request_interval=%.3fs",
             request_interval,
         )
         return client
+
+    def _build_sdk_api_client(
+        self,
+        *,
+        token: str,
+        api_url: str,
+        request_interval: float,
+    ) -> _ThrottledTushareSdkClient:
+        """Build the official tushare SDK client after replacing its endpoint."""
+        import tushare as ts
+        from tushare.pro import client as ts_client
+
+        ts_client.DataApi._DataApi__http_url = api_url
+        sdk_client = ts.pro_api(token)
+        logger.info(
+            "Tushare API client configured via official SDK proxy endpoint: api_url=%s, request_interval=%.3fs",
+            api_url,
+            request_interval,
+        )
+        return _ThrottledTushareSdkClient(
+            client=sdk_client,
+            request_interval=request_interval,
+        )
 
     def _determine_priority(self) -> int:
         """
