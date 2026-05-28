@@ -29,6 +29,29 @@ if "tushare" not in sys.modules:
 fetch_tushare_stock_list = importlib.import_module("fetch_tushare_stock_list")
 
 
+def test_configure_tushare_api_url_updates_sdk_client_endpoint():
+    pro_module = types.ModuleType("tushare.pro")
+    client_module = types.ModuleType("tushare.pro.client")
+
+    class DataApi:
+        _DataApi__http_url = "http://api.tushare.pro"
+
+    client_module.DataApi = DataApi
+    pro_module.client = client_module
+
+    with patch.dict(
+        sys.modules,
+        {
+            "tushare.pro": pro_module,
+            "tushare.pro.client": client_module,
+        },
+    ):
+        configured = fetch_tushare_stock_list.configure_tushare_api_url("https://tu.brze.top/")
+
+    assert configured is True
+    assert client_module.DataApi._DataApi__http_url == "https://tu.brze.top"
+
+
 def test_should_fix_a_stock_name_matches_status_prefixes():
     assert fetch_tushare_stock_list.should_fix_a_stock_name("XD西藏药")
     assert fetch_tushare_stock_list.should_fix_a_stock_name("XR浦东建")

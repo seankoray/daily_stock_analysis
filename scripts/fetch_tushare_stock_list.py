@@ -51,6 +51,7 @@ except ImportError:
 load_dotenv()
 
 TUSHARE_TOKEN = os.getenv('TUSHARE_TOKEN')
+TUSHARE_API_URL = (os.getenv('TUSHARE_API_URL') or '').strip()
 OUTPUT_DIR = Path(__file__).parent.parent / "data"
 PAGE_SIZE = 5000  # 美股每页读取数量（API 最大6000，设置5000留余量）
 SLEEP_MIN = 5     # 最小睡眠时间（秒）
@@ -58,6 +59,27 @@ SLEEP_MAX = 10    # 最大睡眠时间（秒）
 A_RK_BATCH_SIZE = 200
 A_RK_FIELDS = "ts_code,name,close,pre_close,trade_time"
 A_RK_NAME_PREFIX_RE = re.compile(r"^(XD|XR|DR|N|C)")
+
+
+def configure_tushare_api_url(api_url: str) -> bool:
+    """
+    配置 Tushare SDK 的 Pro API 地址。
+
+    代理渠道通常要求在创建 pro_api client 前修改 DataApi 的私有 URL。
+    此函数集中处理该兼容逻辑，便于测试和失败降级。
+    """
+    normalized_url = (api_url or '').strip().rstrip('/')
+    if not normalized_url:
+        return False
+
+    try:
+        from tushare.pro import client as ts_client
+
+        ts_client.DataApi._DataApi__http_url = normalized_url
+        return True
+    except Exception as e:
+        print(f"[警告] TUSHARE_API_URL 配置失败，将使用 Tushare SDK 默认地址: {e}")
+        return False
 
 
 def get_tushare_api() -> Optional[ts.pro_api]:
@@ -73,6 +95,9 @@ def get_tushare_api() -> Optional[ts.pro_api]:
         return None
 
     try:
+        if configure_tushare_api_url(TUSHARE_API_URL):
+            print(f"✓ Tushare API 地址已切换到: {TUSHARE_API_URL.rstrip('/')}")
+
         api = ts.pro_api(TUSHARE_TOKEN)
         # 测试连接
         api.trade_cal(exchange='SSE', start_date='20240101', end_date='20240101')

@@ -16,6 +16,15 @@ TUSHARE_TOKEN=你的tushare_token
 
 > 获取 Token：访问 [Tushare Pro](https://tushare.pro/weborder/#/login) 注册并获取
 
+如果使用 Tushare 代理渠道，可额外配置自定义 API 地址和请求间隔：
+
+```bash
+TUSHARE_API_URL=https://tu.brze.top
+TUSHARE_REQUEST_INTERVAL=0.6
+```
+
+`TUSHARE_API_URL` 会在创建 Tushare Pro client 前替换 SDK 的请求地址；`TUSHARE_REQUEST_INTERVAL` 用于主程序内置 HTTP client 的最小请求间隔，代理渠道有频控要求时建议设为 `0.6`。
+
 ### 2. 运行脚本
 
 ```bash

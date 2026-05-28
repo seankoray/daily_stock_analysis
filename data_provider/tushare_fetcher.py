@@ -75,10 +75,32 @@ def _is_us_code(stock_code: str) -> bool:
 class _TushareHttpClient:
     """Lightweight Tushare Pro client that does not require the tushare SDK."""
 
-    def __init__(self, token: str, timeout: int = 30, api_url: str = "http://api.tushare.pro") -> None:
+    def __init__(
+        self,
+        token: str,
+        timeout: int = 30,
+        api_url: str = "http://api.tushare.pro",
+        request_interval: float = 0.0,
+    ) -> None:
         self._token = token
         self._timeout = timeout
-        self._api_url = api_url
+        self._api_url = (api_url or "http://api.tushare.pro").strip().rstrip("/")
+        self._request_interval = max(0.0, float(request_interval or 0.0))
+        self._last_request_at: Optional[float] = None
+
+    def _throttle(self) -> None:
+        """Enforce a minimum interval between Tushare Pro HTTP requests."""
+        if self._request_interval <= 0:
+            return
+
+        current_time = time.monotonic()
+        if self._last_request_at is not None:
+            elapsed = current_time - self._last_request_at
+            sleep_time = self._request_interval - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                current_time = time.monotonic()
+        self._last_request_at = current_time
 
     def query(self, api_name: str, fields: str = "", **kwargs) -> pd.DataFrame:
         req_params = {
@@ -87,6 +109,7 @@ class _TushareHttpClient:
             "params": kwargs,
             "fields": fields,
         }
+        self._throttle()
         res = requests.post(self._api_url, json=req_params, timeout=self._timeout)
         if res.status_code != 200:
             raise Exception(f"Tushare API HTTP {res.status_code}")
@@ -178,8 +201,20 @@ class TushareFetcher(BaseFetcher):
         The project already normalizes all Pro calls through the same request
         contract, so we do not need the official tushare SDK during runtime.
         """
-        client = _TushareHttpClient(token=token)
-        logger.debug("Tushare API client configured for direct HTTP calls")
+        config = get_config()
+        api_url = getattr(config, "tushare_api_url", None) or "http://api.tushare.pro"
+        request_interval = getattr(config, "tushare_request_interval", 0.0) or 0.0
+
+        client = _TushareHttpClient(
+            token=token,
+            api_url=api_url,
+            request_interval=request_interval,
+        )
+        logger.debug(
+            "Tushare API client configured for direct HTTP calls: api_url=%s, request_interval=%.3fs",
+            api_url,
+            request_interval,
+        )
         return client
 
     def _determine_priority(self) -> int:

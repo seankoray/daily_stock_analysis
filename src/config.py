@@ -619,6 +619,8 @@ class Config:
 
     # === 数据源 API Token ===
     tushare_token: Optional[str] = None
+    tushare_api_url: Optional[str] = None
+    tushare_request_interval: float = 0.0
     tickflow_api_key: Optional[str] = None
     finnhub_api_key: Optional[str] = None
     alphavantage_api_key: Optional[str] = None
@@ -1409,6 +1411,13 @@ class Config:
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             tushare_token=os.getenv('TUSHARE_TOKEN'),
+            tushare_api_url=(os.getenv('TUSHARE_API_URL') or '').strip() or None,
+            tushare_request_interval=parse_env_float(
+                os.getenv('TUSHARE_REQUEST_INTERVAL'),
+                0.0,
+                field_name='TUSHARE_REQUEST_INTERVAL',
+                minimum=0.0,
+            ),
             tickflow_api_key=os.getenv('TICKFLOW_API_KEY'),
             finnhub_api_key=os.getenv('FINNHUB_API_KEY') or None,
             alphavantage_api_key=os.getenv('ALPHAVANTAGE_API_KEY') or None,
