@@ -1,9 +1,10 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天北京时间 16:00 (UTC 08:00)
+  # 定时触发 - 每天北京时间 16:17 (UTC 08:17)
+  # 避开 GitHub Actions 整点高负载窗口，降低 schedule 被延迟或丢弃的概率。
   schedule:
-    - cron: '0 8 * * 1-5'      # 周一到周五，UTC 08:00 = 北京时间 16:00
+    - cron: '17 8 * * 1-5'     # 周一到周五，UTC 08:17 = 北京时间 16:17
   
   # 手动触发
   workflow_dispatch:
@@ -364,8 +365,8 @@ jobs:
           # ==========================================
           LOG_LEVEL: INFO
           MAX_WORKERS: ${{ vars.MAX_WORKERS || secrets.MAX_WORKERS || '1' }}
-          # 筹码分布：默认 false（云端接口不稳定）；需启用时在 Settings → Variables 添加 ENABLE_CHIP_DISTRIBUTION=true
-          ENABLE_CHIP_DISTRIBUTION: ${{ vars.ENABLE_CHIP_DISTRIBUTION || secrets.ENABLE_CHIP_DISTRIBUTION || 'false' }}
+          # 筹码分布：默认启用；如云端接口不稳定，可在 Settings → Variables 添加 ENABLE_CHIP_DISTRIBUTION=false 关闭
+          ENABLE_CHIP_DISTRIBUTION: ${{ vars.ENABLE_CHIP_DISTRIBUTION || secrets.ENABLE_CHIP_DISTRIBUTION || 'true' }}
           # 实时行情数据源优先级（腾讯有量比且稳定，推荐首选）
           # 可选值: tencent, akshare_sina, efinance, akshare_em, tushare
           # 如果有 Tushare Pro 高积分账号，可将 tushare 放在首位
