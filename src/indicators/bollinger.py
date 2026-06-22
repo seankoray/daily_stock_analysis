@@ -265,13 +265,13 @@ class MultiTimeframeBollAnalyzer:
         lower_positions = {"below_lower", "lower_half"}
         upper_positions = {"above_upper", "upper_half"}
         if daily.position == "below_lower" and weekly.position == "below_lower":
-            return "double_oversold", "日周双周期跌破下轨，均值回归压力增强，但需等待日线企稳"
+            return "double_oversold", "日K、周K均跌破下轨，超跌程度较高，但仍需等待日线企稳"
         if daily.position in lower_positions and weekly.position in upper_positions:
             return "daily_weak_weekly_strong", "日线回调但周线结构仍强，关注短线企稳"
         if daily.position in upper_positions and weekly.position in lower_positions:
             return "daily_strong_weekly_weak", "日线反弹但周线位置偏弱，谨防反弹受阻"
         if daily.position in upper_positions and weekly.position in upper_positions:
-            return "double_bullish", "日周BOLL位置共振偏强"
+            return "double_bullish", "短期和中期价格均位于BOLL中轨上方，趋势位置偏强"
         if daily.position in lower_positions and weekly.position in lower_positions:
-            return "double_bearish", "日周BOLL位置共振偏弱"
-        return "mixed", "日周BOLL信号分化，需结合趋势与支撑确认"
+            return "double_bearish", "短期和中期价格均位于BOLL中轨下方，暂未形成明确企稳信号"
+        return "mixed", "日K与周K价格位置不一致，需结合趋势、支撑与量能确认"

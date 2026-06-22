@@ -58,6 +58,96 @@ def _clean_sniper_value(val: Any) -> str:
     return s
 
 
+def _format_number(value: Any, digits: int = 2) -> str:
+    """Format report numbers without exposing floating-point implementation noise."""
+    if value is None or value == "":
+        return "N/A"
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_percent_b(value: Any) -> str:
+    """Render BOLL %B as an intuitive percentage rather than a 0-1 decimal."""
+    if value is None or value == "":
+        return "N/A"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _localize_boll_position(value: Any) -> str:
+    return {
+        "above_upper": "上轨上方（偏热）",
+        "upper_half": "中轨上方",
+        "lower_half": "中轨下方",
+        "below_lower": "下轨下方（偏弱）",
+        "unavailable": "数据不足",
+    }.get(str(value or "").strip(), str(value or "N/A"))
+
+
+def _localize_boll_width(value: Any) -> str:
+    return {
+        "expanding": "带宽扩大",
+        "contracting": "带宽收窄",
+        "stable": "带宽平稳",
+        "unavailable": "数据不足",
+    }.get(str(value or "").strip(), str(value or "N/A"))
+
+
+def _score_level(value: Any) -> str:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return "数据不足"
+    if score >= 80:
+        return "较强"
+    if score >= 70:
+        return "偏积极"
+    if score >= 60:
+        return "中性偏积极"
+    if score >= 50:
+        return "一般"
+    if score >= 35:
+        return "偏弱"
+    return "较弱"
+
+
+def _boll_score_interpretation(boll_data: Dict[str, Any]) -> str:
+    """Explain the difference between stock quality and current entry timing."""
+    try:
+        medium = float(boll_data.get("medium_term_score"))
+        entry = float(boll_data.get("entry_timing_score"))
+    except (TypeError, ValueError):
+        return "评分数据不足，暂不能判断中期结构与当前买点的匹配程度。"
+
+    if medium >= 70 and entry < 60:
+        return "中期结构较好，但当前买点一般；“值得关注”不等于“现在适合追买”，宜等待回踩或突破确认。"
+    if medium >= 70 and entry >= 70:
+        return "中期结构与当前时机同时偏强，但仍需结合量能、支撑和风险收益空间确认。"
+    if medium < 50 and entry >= 65:
+        return "短线位置有所改善，但中期结构仍弱，更接近反弹观察而非趋势性机会。"
+    if medium < 50 and entry < 50:
+        return "中期结构和当前时机均偏弱，优先观察企稳，不宜仅因接近下轨而机械抄底。"
+    return "中期结构与当前时机没有形成强共振，建议等待趋势或价格位置进一步确认。"
+
+
+def _boll_watch_condition(boll_data: Dict[str, Any]) -> str:
+    daily = boll_data.get("daily") or {}
+    weekly = boll_data.get("weekly") or {}
+    daily_position = daily.get("position")
+    weekly_position = weekly.get("position")
+    if daily_position in {"below_lower", "lower_half"}:
+        return "关注日K重新站上中轨或在确认支撑附近止跌；若跌破下轨后继续放量走弱，信号失效。"
+    if daily_position in {"above_upper", "upper_half"} and weekly_position in {"above_upper", "upper_half"}:
+        return "关注回踩日K中轨能否获得支撑，或放量突破近期压力；当前位置不宜仅凭趋势偏强追高。"
+    if weekly_position in {"below_lower", "lower_half"}:
+        return "短线反弹需先确认日K企稳，同时观察周K能否收复中轨，否则仍按弱势反弹处理。"
+    return "等待日K方向确认，并与均线、近期高低点、量能和风险收益空间交叉验证。"
+
+
 def _resolve_templates_dir() -> Path:
     """Resolve template directory relative to project root."""
     config = get_config()
@@ -163,6 +253,13 @@ def render(
         "show_llm_model": show_llm_model,
         "escape_md": _escape_md,
         "clean_sniper": _clean_sniper_value,
+        "format_number": _format_number,
+        "format_percent_b": _format_percent_b,
+        "localize_boll_position": _localize_boll_position,
+        "localize_boll_width": _localize_boll_width,
+        "score_level": _score_level,
+        "boll_score_interpretation": _boll_score_interpretation,
+        "boll_watch_condition": _boll_watch_condition,
         "failed_checks": failed_checks,
         "history_by_code": {},
         "get_chip_unavailable_reason": get_chip_unavailable_reason,

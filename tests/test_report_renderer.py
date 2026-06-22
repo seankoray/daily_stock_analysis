@@ -198,7 +198,7 @@ class TestReportRenderer(unittest.TestCase):
                             "upper": 10.8,
                             "percent_b": 0.38,
                             "width_state": "expanding",
-                            "position": "inside",
+                            "position": "lower_half",
                         },
                         "weekly": {
                             "lower": 8.0,
@@ -206,7 +206,7 @@ class TestReportRenderer(unittest.TestCase):
                             "upper": 13.0,
                             "percent_b": 0.3,
                             "width_state": "stable",
-                            "position": "inside",
+                            "position": "lower_half",
                             "is_partial": True,
                         },
                         "signal_score": 71,
@@ -221,11 +221,18 @@ class TestReportRenderer(unittest.TestCase):
         out = render("markdown", [r], summary_only=False)
 
         self.assertIsNotNone(out)
-        self.assertIn("双周期 BOLL", out)
+        self.assertIn("BOLL 判断", out)
+        self.assertIn("9.20—10.80", out)
+        self.assertIn("%B 38.0%", out)
+        self.assertIn("带宽扩大", out)
+        self.assertIn("中轨下方", out)
         self.assertIn("综合评分", out)
         self.assertIn("71/100", out)
         self.assertIn("76/100", out)
         self.assertIn("64/100", out)
+        self.assertIn("评分解读", out)
+        self.assertIn("后续观察", out)
+        self.assertIn("本周K线尚未结束", out)
 
     def test_render_unknown_platform_returns_none(self) -> None:
         """Unknown platform returns None (caller fallback)."""

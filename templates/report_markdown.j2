@@ -108,18 +108,30 @@
 {% set daily_boll = boll_data.get('daily', {}) %}
 {% set weekly_boll = boll_data.get('weekly', {}) %}
 
-**📐 双周期 BOLL**：{{ boll_data.get('summary', 'N/A') }}
+**📐 BOLL 判断**：{{ boll_data.get('summary', 'N/A') }}
 
-| 周期 | 下轨 | 中轨 | 上轨 | %B | 带宽 | 位置 |
-|------|------|------|------|----|------|------|
-| 日K | {{ daily_boll.get('lower', 'N/A') }} | {{ daily_boll.get('middle', 'N/A') }} | {{ daily_boll.get('upper', 'N/A') }} | {{ daily_boll.get('percent_b', 'N/A') }} | {{ daily_boll.get('width_state', 'N/A') }} | {{ daily_boll.get('position', 'N/A') }} |
-| 周K{{ '（未完成）' if weekly_boll.get('is_partial') else '' }} | {{ weekly_boll.get('lower', 'N/A') }} | {{ weekly_boll.get('middle', 'N/A') }} | {{ weekly_boll.get('upper', 'N/A') }} | {{ weekly_boll.get('percent_b', 'N/A') }} | {{ weekly_boll.get('width_state', 'N/A') }} | {{ weekly_boll.get('position', 'N/A') }} |
+| 周期 | 价格位置 | 中轨 | 下轨—上轨 | 波动状态 |
+|------|------|------|------|------|
+| 日K | {{ localize_boll_position(daily_boll.get('position')) }}，%B {{ format_percent_b(daily_boll.get('percent_b')) }} | {{ format_number(daily_boll.get('middle')) }} | {{ format_number(daily_boll.get('lower')) }}—{{ format_number(daily_boll.get('upper')) }} | {{ localize_boll_width(daily_boll.get('width_state')) }} |
+| 周K{{ '（未完成）' if weekly_boll.get('is_partial') else '' }} | {{ localize_boll_position(weekly_boll.get('position')) }}，%B {{ format_percent_b(weekly_boll.get('percent_b')) }} | {{ format_number(weekly_boll.get('middle')) }} | {{ format_number(weekly_boll.get('lower')) }}—{{ format_number(weekly_boll.get('upper')) }} | {{ localize_boll_width(weekly_boll.get('width_state')) }} |
+
+{% if weekly_boll.get('is_partial') %}
+> 注：本周K线尚未结束，周K轨道和位置可能随本周价格变化。
+{% endif %}
 
 **规则评分 {{ boll_data.get('score_version', 'v2') }}（未经收益回测校准）**
 
-| 综合评分 | 中期机会 | 进场时机 |
+| 评分 | 得分 | 解读 |
 |------|------|------|
-| {{ boll_data.get('signal_score', 'N/A') }}/100 | {{ boll_data.get('medium_term_score', 'N/A') }}/100 | {{ boll_data.get('entry_timing_score', 'N/A') }}/100 |
+| 综合评分 | {{ boll_data.get('signal_score', 'N/A') }}/100 | {{ score_level(boll_data.get('signal_score')) }} |
+| 中期机会 | {{ boll_data.get('medium_term_score', 'N/A') }}/100 | {{ score_level(boll_data.get('medium_term_score')) }} |
+| 进场时机 | {{ boll_data.get('entry_timing_score', 'N/A') }}/100 | {{ score_level(boll_data.get('entry_timing_score')) }} |
+
+**评分解读**：{{ boll_score_interpretation(boll_data) }}
+
+**后续观察**：{{ boll_watch_condition(boll_data) }}
+
+> BOLL上下轨仅作为候选支撑与压力，不直接等同于买卖价；最终点位需结合均线、近期高低点、趋势、量能和风险规则确认。
 {% endif %}
 {% set portfolio_data = data_persp.get('portfolio_context', {}) %}
 {% if portfolio_data %}
