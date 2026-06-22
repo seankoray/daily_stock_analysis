@@ -118,6 +118,25 @@ class StockDaily(Base):
     def __repr__(self):
         return f"<StockDaily(code={self.code}, date={self.date}, close={self.close})>"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'code': self.code,
+            'date': self.date,
+            'open': self.open,
+            'high': self.high,
+            'low': self.low,
+            'close': self.close,
+            'volume': self.volume,
+            'amount': self.amount,
+            'pct_chg': self.pct_chg,
+            'ma5': self.ma5,
+            'ma10': self.ma10,
+            'ma20': self.ma20,
+            'volume_ratio': self.volume_ratio,
+            'data_source': self.data_source,
+        }
+
 
 class StockIntradayBar(Base):
     """Normalized A-share intraday bar; kept separate from daily history."""
@@ -167,25 +186,6 @@ class IntradayTradeState(Base):
     __table_args__ = (
         UniqueConstraint("code", "trade_date", "account_id", name="uix_t_state_code_date_account"),
     )
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        return {
-            'code': self.code,
-            'date': self.date,
-            'open': self.open,
-            'high': self.high,
-            'low': self.low,
-            'close': self.close,
-            'volume': self.volume,
-            'amount': self.amount,
-            'pct_chg': self.pct_chg,
-            'ma5': self.ma5,
-            'ma10': self.ma10,
-            'ma20': self.ma20,
-            'volume_ratio': self.volume_ratio,
-            'data_source': self.data_source,
-        }
 
 
 class NewsIntel(Base):
