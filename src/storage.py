@@ -117,6 +117,56 @@ class StockDaily(Base):
     
     def __repr__(self):
         return f"<StockDaily(code={self.code}, date={self.date}, close={self.close})>"
+
+
+class StockIntradayBar(Base):
+    """Normalized A-share intraday bar; kept separate from daily history."""
+
+    __tablename__ = "stock_intraday_bars"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(16), nullable=False, index=True)
+    interval = Column(String(8), nullable=False, default="5m", index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Float)
+    amount = Column(Float)
+    data_source = Column(String(50))
+    is_complete = Column(Boolean, nullable=False, default=True)
+    fetched_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("code", "interval", "timestamp", name="uix_intraday_code_interval_ts"),
+        Index("ix_intraday_code_interval_ts", "code", "interval", "timestamp"),
+    )
+
+
+class IntradayTradeState(Base):
+    """Persistent one-cycle-per-day T-trade observation state."""
+
+    __tablename__ = "intraday_trade_states"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(16), nullable=False, index=True)
+    trade_date = Column(Date, nullable=False, index=True)
+    account_id = Column(Integer, index=True)
+    phase = Column(String(32), nullable=False, default="watch")
+    direction = Column(String(32), nullable=False, default="none")
+    cycle_count = Column(Integer, nullable=False, default=0)
+    suggested_quantity = Column(Float, nullable=False, default=0.0)
+    trigger_price = Column(Float)
+    invalidation_price = Column(Float)
+    payload = Column(Text)
+    last_signal_key = Column(String(128))
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("code", "trade_date", "account_id", name="uix_t_state_code_date_account"),
+    )
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""

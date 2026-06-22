@@ -2,6 +2,8 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pie, PieChart, ResponsiveContainer, Tooltip, Legend, Cell } from 'recharts';
 import { portfolioApi } from '../api/portfolio';
+import { intradayApi } from '../api/intraday';
+import type { IntradaySignal } from '../types/intraday';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
 import { ApiErrorAlert, Card, Badge, ConfirmDialog, EmptyState, InlineAlert } from '../components/common';
@@ -209,6 +211,8 @@ const PortfolioPage: React.FC = () => {
   const [error, setError] = useState<ParsedApiError | null>(null);
   const [riskWarning, setRiskWarning] = useState<string | null>(null);
   const [writeWarning, setWriteWarning] = useState<string | null>(null);
+  const [intradaySignals, setIntradaySignals] = useState<Record<string, IntradaySignal>>({});
+  const [intradayLoading, setIntradayLoading] = useState<Record<string, boolean>>({});
 
   const [brokers, setBrokers] = useState<PortfolioImportBrokerItem[]>([]);
   const [selectedBroker, setSelectedBroker] = useState('huatai');
@@ -467,6 +471,32 @@ const PortfolioPage: React.FC = () => {
     rows.sort((a, b) => Number(b.marketValueBase || 0) - Number(a.marketValueBase || 0));
     return rows;
   }, [snapshot]);
+
+  const refreshIntradaySignal = useCallback(async (row: FlatPosition, fetchLatest = false) => {
+    if (row.market !== 'cn') return;
+    const key = `${row.accountId}-${row.symbol}`;
+    setIntradayLoading((prev) => ({ ...prev, [key]: true }));
+    try {
+      const signal = fetchLatest
+        ? await intradayApi.refresh(row.symbol, row.accountId)
+        : await intradayApi.getSignal(row.symbol, row.accountId);
+      setIntradaySignals((prev) => ({ ...prev, [key]: signal }));
+    } catch {
+      // Intraday is optional and must not block the portfolio page.
+    } finally {
+      setIntradayLoading((prev) => ({ ...prev, [key]: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const cnRows = positionRows.filter((row) => row.market === 'cn');
+    if (cnRows.length === 0) return undefined;
+    cnRows.forEach((row) => void refreshIntradaySignal(row));
+    const timer = window.setInterval(() => {
+      cnRows.forEach((row) => void refreshIntradaySignal(row));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [positionRows, refreshIntradaySignal]);
 
   const sectorPieData = useMemo(() => {
     const sectors = risk?.sectorConcentration?.topSectors || [];
@@ -1002,6 +1032,7 @@ const PortfolioPage: React.FC = () => {
                     <th className="text-right py-2 pr-2">市值</th>
                     <th className="text-right py-2">未实现盈亏</th>
                     <th className="text-right py-2">收益率</th>
+                    <th className="text-right py-2">盘中做T观察</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1039,6 +1070,44 @@ const PortfolioPage: React.FC = () => {
                         }`}
                       >
                         {formatSignedPct(row.unrealizedPnlPct)}
+                      </td>
+                      <td className="py-2 text-right min-w-56">
+                        {row.market !== 'cn' ? (
+                          <span className="text-xs text-secondary">首期仅A股</span>
+                        ) : (() => {
+                          const key = `${row.accountId}-${row.symbol}`;
+                          const signal = intradaySignals[key];
+                          const directionLabel = signal?.direction === 'sell_then_buy'
+                            ? '先卖后买回'
+                            : signal?.direction === 'buy_then_sell'
+                              ? '先买后卖底仓'
+                              : '仅观察';
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex justify-end gap-2">
+                                <Badge variant={signal?.status === 'triggered' ? 'warning' : 'default'}>
+                                  {directionLabel}
+                                </Badge>
+                                <button
+                                  type="button"
+                                  className="btn-secondary !px-2 !py-1 !text-xs"
+                                  disabled={intradayLoading[key]}
+                                  onClick={() => void refreshIntradaySignal(row, true)}
+                                >
+                                  {intradayLoading[key] ? '刷新中' : '刷新'}
+                                </button>
+                              </div>
+                              {signal ? (
+                                <div className="text-[11px] text-secondary">
+                                  上限 {signal.suggestedQuantity || 0} 股
+                                  {signal.dataFresh ? '' : ' · 数据过期'}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-secondary">尚无盘中数据</div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}

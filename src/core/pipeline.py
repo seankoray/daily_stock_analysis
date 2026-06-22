@@ -47,6 +47,7 @@ from src.analysis_context_pack_prompt import format_analysis_context_pack_prompt
 from src.analysis_context_pack_overview import render_analysis_context_pack_overview
 from src.market_phase_summary import MARKET_PHASE_SUMMARY_KEY, render_market_phase_summary
 from src.services.social_sentiment_service import SocialSentimentService
+from src.services.portfolio_context_service import PortfolioContextService
 from src.services.analysis_context_builder import (
     AnalysisContextBuilder,
     PipelineAnalysisArtifacts,
@@ -102,6 +103,7 @@ class StockAnalysisPipeline:
         save_context_snapshot: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
         analysis_skills: Optional[List[str]] = None,
+        portfolio_account_id: Optional[int] = None,
     ):
         """
         初始化调度器
@@ -121,6 +123,7 @@ class StockAnalysisPipeline:
         )
         self.progress_callback = progress_callback
         self.analysis_skills = list(analysis_skills) if analysis_skills is not None else None
+        self.portfolio_account_id = portfolio_account_id
         
         # 初始化各模块
         self.db = get_db()
@@ -129,6 +132,7 @@ class StockAnalysisPipeline:
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
         self.analyzer = GeminiAnalyzer(config=self.config, skills=self.analysis_skills)
         self.notifier = NotificationService(source_message=source_message)
+        self.portfolio_context_service = PortfolioContextService()
         self._single_stock_notify_lock = threading.Lock()
         
         # 初始化搜索服务（可选，初始化失败不应阻断主分析流程）
@@ -245,7 +249,8 @@ class StockAnalysisPipeline:
 
             # 从数据源获取数据
             logger.info(f"{stock_name}({code}) 开始从数据源获取数据...")
-            df, source_name = self.fetcher_manager.get_daily_data(code, days=30)
+            history_days = 180 if getattr(self.config, "boll_score_v2_enabled", True) else 30
+            df, source_name = self.fetcher_manager.get_daily_data(code, days=history_days)
 
             if df is None or df.empty:
                 return False, "获取数据为空"
@@ -382,6 +387,10 @@ class StockAnalysisPipeline:
                 code,
                 fundamental_context,
             )
+            portfolio_context = self.portfolio_context_service.get_stock_context(
+                code,
+                account_id=self.portfolio_account_id,
+            )
 
             # P0: write-only snapshot, fail-open, no read dependency on this table.
             try:
@@ -402,7 +411,10 @@ class StockAnalysisPipeline:
                 _mkt = get_market_for_stock(normalize_stock_code(code))
                 frozen = get_frozen_target_date()
                 end_date = frozen if frozen else get_market_now(_mkt).date()
-                start_date = end_date - timedelta(days=89)  # ~60 trading days for MA60
+                history_calendar_days = (
+                    280 if getattr(self.config, "boll_score_v2_enabled", True) else 89
+                )
+                start_date = end_date - timedelta(days=history_calendar_days)
                 historical_bars = self.db.get_data_range(code, start_date, end_date)
                 if historical_bars:
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
@@ -427,6 +439,7 @@ class StockAnalysisPipeline:
                     chip_data,
                     fundamental_context,
                     trend_result,
+                    portfolio_context=portfolio_context,
                     market_phase_context=market_phase_context_dict,
                     market_phase_summary=market_phase_summary,
                 )
@@ -515,6 +528,7 @@ class StockAnalysisPipeline:
                 market_phase_context=market_phase_context_dict,
             )
             enhanced_context["market_phase_context"] = market_phase_context_dict
+            enhanced_context["portfolio_context"] = portfolio_context
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
@@ -607,6 +621,11 @@ class StockAnalysisPipeline:
             if result:
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                self._attach_computed_context_to_dashboard(
+                    result,
+                    trend_result,
+                    portfolio_context,
+                )
                 if isinstance(fundamental_context, dict):
                     result.fundamental_context = fundamental_context
 
@@ -743,6 +762,13 @@ class StockAnalysisPipeline:
                 'signal_score': trend_result.signal_score,
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
+                'daily_boll': trend_result.daily_boll,
+                'weekly_boll': trend_result.weekly_boll,
+                'boll_confluence': trend_result.boll_confluence,
+                'boll_summary': trend_result.boll_summary,
+                'medium_term_score': trend_result.medium_term_score,
+                'entry_timing_score': trend_result.entry_timing_score,
+                'score_version': trend_result.score_version,
             }
 
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
@@ -949,6 +975,7 @@ class StockAnalysisPipeline:
         fundamental_context: Optional[Dict[str, Any]] = None,
         trend_result: Optional[TrendAnalysisResult] = None,
         *,
+        portfolio_context: Optional[Dict[str, Any]] = None,
         market_phase_context: Optional[Dict[str, Any]] = None,
         market_phase_summary: Optional[Dict[str, Any]] = None,
     ) -> Optional[AnalysisResult]:
@@ -974,6 +1001,7 @@ class StockAnalysisPipeline:
                 "report_type": report_type.value,
                 "report_language": report_language,
                 "fundamental_context": fundamental_context,
+                "portfolio_context": portfolio_context,
             }
             if self.analysis_skills is not None:
                 initial_context["skills"] = self.analysis_skills
@@ -1096,6 +1124,11 @@ class StockAnalysisPipeline:
                     result.current_price = realtime_data.get("price")
                     result.change_pct = realtime_data.get("change_pct")
                 stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                self._attach_computed_context_to_dashboard(
+                    result,
+                    trend_result,
+                    portfolio_context,
+                )
                 if isinstance(fundamental_context, dict):
                     result.fundamental_context = fundamental_context
 
@@ -1170,6 +1203,33 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] Agent 分析失败: {e}")
             logger.exception(f"[{code}] Agent 详细错误信息:")
             return None
+
+    @staticmethod
+    def _attach_computed_context_to_dashboard(
+        result: AnalysisResult,
+        trend_result: Optional[TrendAnalysisResult],
+        portfolio_context: Optional[Dict[str, Any]],
+    ) -> None:
+        """Persist deterministic technical/portfolio data alongside LLM output."""
+        if not isinstance(result.dashboard, dict):
+            result.dashboard = {}
+        data_perspective = result.dashboard.get("data_perspective")
+        if not isinstance(data_perspective, dict):
+            data_perspective = {}
+            result.dashboard["data_perspective"] = data_perspective
+        if trend_result is not None:
+            data_perspective["bollinger"] = {
+                "daily": trend_result.daily_boll,
+                "weekly": trend_result.weekly_boll,
+                "confluence": trend_result.boll_confluence,
+                "summary": trend_result.boll_summary,
+                "medium_term_score": trend_result.medium_term_score,
+                "entry_timing_score": trend_result.entry_timing_score,
+                "score_version": trend_result.score_version,
+                "calibration_note": "规则评分v2，未经收益回测校准",
+            }
+        if isinstance(portfolio_context, dict):
+            data_perspective["portfolio_context"] = portfolio_context
 
     def _agent_result_to_analysis_result(
         self,

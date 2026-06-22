@@ -312,6 +312,7 @@ class AnalysisTaskQueue:
         report_type: str = "detailed",
         force_refresh: bool = False,
         skills: Optional[List[str]] = None,
+        portfolio_account_id: Optional[int] = None,
     ) -> TaskInfo:
         """
         Submit a single analysis task.
@@ -342,6 +343,7 @@ class AnalysisTaskQueue:
             report_type=report_type,
             force_refresh=force_refresh,
             skills=skills,
+            portfolio_account_id=portfolio_account_id,
         )
         if duplicates:
             raise duplicates[0]
@@ -357,6 +359,7 @@ class AnalysisTaskQueue:
         force_refresh: bool = False,
         notify: bool = True,
         skills: Optional[List[str]] = None,
+        portfolio_account_id: Optional[int] = None,
     ) -> Tuple[List[TaskInfo], List[DuplicateTaskError]]:
         """
         Submit analysis tasks in batch.
@@ -409,6 +412,7 @@ class AnalysisTaskQueue:
                         force_refresh,
                         notify,
                         task_skills,
+                        portfolio_account_id,
                     )
                 except Exception:
                     # Roll back the current batch to avoid partial submission.
@@ -594,6 +598,7 @@ class AnalysisTaskQueue:
         force_refresh: bool,
         notify: bool = True,
         skills: Optional[List[str]] = None,
+        portfolio_account_id: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         执行分析任务（在线程池中运行）
@@ -648,6 +653,7 @@ class AnalysisTaskQueue:
                 send_notification=notify,
                 progress_callback=_on_progress,
                 skills=skills,
+                portfolio_account_id=portfolio_account_id,
             )
             reset_run_diagnostic_context(diag_token)
             diag_token = None

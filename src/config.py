@@ -615,6 +615,9 @@ class Config:
     
     # === 自选股配置 ===
     stock_list: List[str] = field(default_factory=list)
+    boll_score_v2_enabled: bool = True
+    intraday_monitor_enabled: bool = False
+    intraday_monitor_interval_seconds: int = 60
 
     # === 飞书云文档配置 ===
     feishu_app_id: Optional[str] = None
@@ -1416,6 +1419,21 @@ class Config:
 
         return cls(
             stock_list=stock_list,
+            boll_score_v2_enabled=parse_env_bool(
+                os.getenv("BOLL_SCORE_V2_ENABLED"),
+                default=True,
+            ),
+            intraday_monitor_enabled=parse_env_bool(
+                os.getenv("INTRADAY_MONITOR_ENABLED"),
+                default=False,
+            ),
+            intraday_monitor_interval_seconds=parse_env_int(
+                os.getenv("INTRADAY_MONITOR_INTERVAL_SECONDS"),
+                60,
+                field_name="INTRADAY_MONITOR_INTERVAL_SECONDS",
+                minimum=60,
+                maximum=300,
+            ),
             feishu_app_id=os.getenv('FEISHU_APP_ID'),
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),

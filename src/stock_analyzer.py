@@ -25,6 +25,7 @@ import pandas as pd
 import numpy as np
 
 from src.config import get_config
+from src.indicators.bollinger import MultiTimeframeBollAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,13 @@ class TrendAnalysisResult:
     signal_score: int = 0            # 综合评分 0-100
     signal_reasons: List[str] = field(default_factory=list)
     risk_factors: List[str] = field(default_factory=list)
+    daily_boll: Dict[str, Any] = field(default_factory=dict)
+    weekly_boll: Dict[str, Any] = field(default_factory=dict)
+    boll_confluence: str = "unavailable"
+    boll_summary: str = ""
+    medium_term_score: int = 0
+    entry_timing_score: int = 0
+    score_version: str = "v1"
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -165,6 +173,13 @@ class TrendAnalysisResult:
             'rsi_24': self.rsi_24,
             'rsi_status': self.rsi_status.value,
             'rsi_signal': self.rsi_signal,
+            'daily_boll': self.daily_boll,
+            'weekly_boll': self.weekly_boll,
+            'boll_confluence': self.boll_confluence,
+            'boll_summary': self.boll_summary,
+            'medium_term_score': self.medium_term_score,
+            'entry_timing_score': self.entry_timing_score,
+            'score_version': self.score_version,
         }
 
 
@@ -200,7 +215,7 @@ class StockTrendAnalyzer:
     
     def __init__(self):
         """初始化分析器"""
-        pass
+        self.boll_analyzer = MultiTimeframeBollAnalyzer()
     
     def analyze(self, df: pd.DataFrame, code: str) -> TrendAnalysisResult:
         """
@@ -259,7 +274,185 @@ class StockTrendAnalyzer:
         # 7. 生成买入信号
         self._generate_signal(result)
 
+        if getattr(get_config(), "boll_score_v2_enabled", True):
+            self._apply_boll_and_v2_scores(df, result)
+
         return result
+
+    def _apply_boll_and_v2_scores(
+        self,
+        df: pd.DataFrame,
+        result: TrendAnalysisResult,
+    ) -> None:
+        """Attach daily/weekly BOLL and calculate two purpose-specific scores."""
+        boll = self.boll_analyzer.analyze(df, include_partial_week=True)
+        result.daily_boll = boll.daily.to_dict()
+        result.weekly_boll = boll.weekly.to_dict()
+        result.boll_confluence = boll.confluence
+        result.boll_summary = boll.summary
+        result.score_version = "v2"
+
+        medium_dimensions = [
+            self._score_medium_trend(result),
+            self._score_weekly_boll(result),
+            self._score_volume_participation(result),
+            self._score_structural_risk(result),
+        ]
+        entry_dimensions = [
+            self._score_daily_price_position(result),
+            self._score_support_confluence(result),
+            self._score_short_confirmation(result),
+            self._score_reward_risk_space(result),
+        ]
+        result.medium_term_score = round(sum(medium_dimensions) / 16 * 100)
+        result.entry_timing_score = round(sum(entry_dimensions) / 16 * 100)
+        # Compatibility summary: medium opportunity is the gate, entry timing
+        # refines execution. Keep an integer 0-100 for existing consumers.
+        result.signal_score = round(
+            result.medium_term_score * 0.6 + result.entry_timing_score * 0.4
+        )
+        self._derive_v2_signal(result)
+        result.signal_reasons.append(
+            f"双评分v2：中期机会 {result.medium_term_score}/100，"
+            f"进场时机 {result.entry_timing_score}/100"
+        )
+        if result.boll_summary:
+            result.signal_reasons.append(f"BOLL：{result.boll_summary}")
+
+    @staticmethod
+    def _score_medium_trend(result: TrendAnalysisResult) -> int:
+        return {
+            TrendStatus.STRONG_BULL: 4,
+            TrendStatus.BULL: 4,
+            TrendStatus.WEAK_BULL: 3,
+            TrendStatus.CONSOLIDATION: 2,
+            TrendStatus.WEAK_BEAR: 1,
+            TrendStatus.BEAR: 0,
+            TrendStatus.STRONG_BEAR: 0,
+        }.get(result.trend_status, 2)
+
+    @staticmethod
+    def _score_weekly_boll(result: TrendAnalysisResult) -> int:
+        weekly = result.weekly_boll or {}
+        if not weekly.get("available"):
+            return 2
+        position = weekly.get("position")
+        slope = weekly.get("middle_slope_pct")
+        slope = float(slope) if slope is not None else 0.0
+        if position in {"above_upper", "upper_half"} and slope > 0:
+            return 4
+        if position == "lower_half" and slope > 0:
+            return 3
+        if position == "below_lower":
+            return 1 if slope < 0 else 2
+        if slope < 0:
+            return 1
+        return 2
+
+    @staticmethod
+    def _score_volume_participation(result: TrendAnalysisResult) -> int:
+        return {
+            VolumeStatus.HEAVY_VOLUME_UP: 4,
+            VolumeStatus.SHRINK_VOLUME_DOWN: 3,
+            VolumeStatus.NORMAL: 2,
+            VolumeStatus.SHRINK_VOLUME_UP: 1,
+            VolumeStatus.HEAVY_VOLUME_DOWN: 0,
+        }.get(result.volume_status, 2)
+
+    @staticmethod
+    def _score_structural_risk(result: TrendAnalysisResult) -> int:
+        score = 4
+        if result.trend_status in {TrendStatus.BEAR, TrendStatus.STRONG_BEAR}:
+            score -= 2
+        if result.macd_status in {MACDStatus.DEATH_CROSS, MACDStatus.CROSSING_DOWN}:
+            score -= 1
+        weekly = result.weekly_boll or {}
+        if weekly.get("position") == "below_lower" and (weekly.get("middle_slope_pct") or 0) < 0:
+            score -= 1
+        return max(0, min(4, score))
+
+    @staticmethod
+    def _score_daily_price_position(result: TrendAnalysisResult) -> int:
+        daily = result.daily_boll or {}
+        position = daily.get("position")
+        if position == "below_lower":
+            return 2 if result.trend_status in {TrendStatus.BEAR, TrendStatus.STRONG_BEAR} else 4
+        if position == "lower_half":
+            return 4 if -5 <= result.bias_ma5 <= 2 else 3
+        if position == "upper_half":
+            return 2 if result.bias_ma5 <= 5 else 1
+        if position == "above_upper":
+            return 1
+        return 2
+
+    @staticmethod
+    def _score_support_confluence(result: TrendAnalysisResult) -> int:
+        score = int(result.support_ma5) + int(result.support_ma10)
+        daily = result.daily_boll or {}
+        price = daily.get("current_price")
+        lower = daily.get("lower")
+        if price and lower and abs(float(price) - float(lower)) / float(lower) <= 0.02:
+            score += 2
+        return max(0, min(4, score))
+
+    @staticmethod
+    def _score_short_confirmation(result: TrendAnalysisResult) -> int:
+        score = 2
+        if result.macd_status in {MACDStatus.GOLDEN_CROSS_ZERO, MACDStatus.GOLDEN_CROSS, MACDStatus.CROSSING_UP}:
+            score += 1
+        if result.rsi_status in {RSIStatus.OVERSOLD, RSIStatus.STRONG_BUY}:
+            score += 1
+        if result.macd_status in {MACDStatus.DEATH_CROSS, MACDStatus.CROSSING_DOWN}:
+            score -= 1
+        if result.rsi_status == RSIStatus.OVERBOUGHT:
+            score -= 1
+        return max(0, min(4, score))
+
+    @staticmethod
+    def _score_reward_risk_space(result: TrendAnalysisResult) -> int:
+        price = result.current_price
+        supports = [v for v in result.support_levels if v and v < price]
+        resistances = [v for v in result.resistance_levels if v and v > price]
+        daily = result.daily_boll or {}
+        for value in (daily.get("lower"),):
+            if value and value < price:
+                supports.append(float(value))
+        for value in (daily.get("middle"), daily.get("upper")):
+            if value and value > price:
+                resistances.append(float(value))
+        if not price or not supports or not resistances:
+            return 2
+        support = max(supports)
+        resistance = min(resistances)
+        risk = price - support
+        reward = resistance - price
+        if risk <= 0:
+            return 1
+        ratio = reward / risk
+        if ratio >= 2:
+            return 4
+        if ratio >= 1.5:
+            return 3
+        if ratio >= 1:
+            return 2
+        return 1
+
+    @staticmethod
+    def _derive_v2_signal(result: TrendAnalysisResult) -> None:
+        if result.medium_term_score < 35:
+            result.buy_signal = (
+                BuySignal.STRONG_SELL
+                if result.trend_status in {TrendStatus.BEAR, TrendStatus.STRONG_BEAR}
+                else BuySignal.WAIT
+            )
+        elif result.medium_term_score >= 70 and result.entry_timing_score >= 70:
+            result.buy_signal = BuySignal.STRONG_BUY
+        elif result.medium_term_score >= 60 and result.entry_timing_score >= 55:
+            result.buy_signal = BuySignal.BUY
+        elif result.medium_term_score >= 50:
+            result.buy_signal = BuySignal.HOLD
+        else:
+            result.buy_signal = BuySignal.WAIT
     
     def _calculate_mas(self, df: pd.DataFrame) -> pd.DataFrame:
         """计算均线"""

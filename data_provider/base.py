@@ -474,6 +474,16 @@ class BaseFetcher(ABC):
                 f"error_type={error_type}, elapsed={elapsed:.2f}s, reason={error_reason}"
             )
             raise DataFetchError(f"[{self.name}] {stock_code}: {error_reason}") from e
+
+    def get_intraday_bars(
+        self,
+        stock_code: str,
+        *,
+        interval: str = "5m",
+        count: int = 240,
+    ) -> pd.DataFrame:
+        """Optional intraday capability. Providers override when supported."""
+        raise DataFetchError(f"[{self.name}] 不支持 {interval} 分钟K")
     
     def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1347,6 +1357,40 @@ class DataFetcherManager:
         """返回可用数据源名称列表"""
         return [f.name for f in self._get_fetchers_snapshot()]
     
+    def get_intraday_bars(
+        self,
+        stock_code: str,
+        *,
+        interval: str = "5m",
+        count: int = 240,
+    ) -> Tuple[pd.DataFrame, str]:
+        """Fetch normalized intraday bars; A-share v1 prefers PyTDX."""
+        if interval not in {"5m", "15m"}:
+            raise ValueError("interval must be 5m or 15m")
+        errors: List[str] = []
+        preferred = ["PytdxFetcher"]
+        fetchers = self._get_fetchers_snapshot()
+        fetchers.sort(key=lambda item: preferred.index(item.__class__.__name__) if item.__class__.__name__ in preferred else 99)
+        for fetcher in fetchers:
+            method = getattr(fetcher, "get_intraday_bars", None)
+            if not callable(method) or fetcher.__class__.__name__ not in preferred:
+                continue
+            try:
+                frame = self._call_fetcher_method(
+                    fetcher,
+                    "get_intraday_bars",
+                    stock_code,
+                    interval=interval,
+                    count=count,
+                )
+                if frame is not None and not frame.empty:
+                    return frame, fetcher.name
+            except Exception as exc:
+                errors.append(f"{fetcher.name}: {exc}")
+        raise DataFetchError(
+            f"{stock_code} {interval} 分钟K获取失败: " + "; ".join(errors or ["no provider"])
+        )
+
     def prefetch_realtime_quotes(self, stock_codes: List[str]) -> int:
         """
         批量预取实时行情数据（在分析开始前调用）

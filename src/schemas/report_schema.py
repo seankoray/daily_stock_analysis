@@ -69,6 +69,18 @@ class ChipStructure(BaseModel):
     chip_health: Optional[str] = None
 
 
+class BollingerData(BaseModel):
+    """Computed dual-timeframe Bollinger context."""
+
+    daily: Optional[Dict[str, Any]] = None
+    weekly: Optional[Dict[str, Any]] = None
+    confluence: Optional[str] = None
+    summary: Optional[str] = None
+    medium_term_score: Optional[Union[int, float, str]] = None
+    entry_timing_score: Optional[Union[int, float, str]] = None
+    score_version: Optional[str] = None
+
+
 class DataPerspective(BaseModel):
     """Data perspective block."""
 
@@ -76,6 +88,8 @@ class DataPerspective(BaseModel):
     price_position: Optional[PricePosition] = None
     volume_analysis: Optional[VolumeAnalysis] = None
     chip_structure: Optional[ChipStructure] = None
+    bollinger: Optional[BollingerData] = None
+    portfolio_context: Optional[Dict[str, Any]] = None
 
 
 class Intelligence(BaseModel):

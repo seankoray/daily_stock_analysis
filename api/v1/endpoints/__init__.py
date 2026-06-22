@@ -19,6 +19,7 @@ from api.v1.endpoints import (
     agent,
     usage,
     portfolio,
+    intraday,
     alerts,
     alphasift,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "agent",
     "usage",
     "portfolio",
+    "intraday",
     "alerts",
     "alphasift",
 ]

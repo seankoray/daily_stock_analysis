@@ -103,6 +103,29 @@
 {% elif chip_unavailable_reason %}
 **{{ labels.chip_label }}**: {{ chip_unavailable_reason }}
 {% endif %}
+{% set boll_data = data_persp.get('bollinger', {}) %}
+{% if boll_data %}
+{% set daily_boll = boll_data.get('daily', {}) %}
+{% set weekly_boll = boll_data.get('weekly', {}) %}
+
+**📐 双周期 BOLL**：{{ boll_data.get('summary', 'N/A') }}
+
+| 周期 | 下轨 | 中轨 | 上轨 | %B | 带宽 | 位置 |
+|------|------|------|------|----|------|------|
+| 日K | {{ daily_boll.get('lower', 'N/A') }} | {{ daily_boll.get('middle', 'N/A') }} | {{ daily_boll.get('upper', 'N/A') }} | {{ daily_boll.get('percent_b', 'N/A') }} | {{ daily_boll.get('width_state', 'N/A') }} | {{ daily_boll.get('position', 'N/A') }} |
+| 周K{{ '（未完成）' if weekly_boll.get('is_partial') else '' }} | {{ weekly_boll.get('lower', 'N/A') }} | {{ weekly_boll.get('middle', 'N/A') }} | {{ weekly_boll.get('upper', 'N/A') }} | {{ weekly_boll.get('percent_b', 'N/A') }} | {{ weekly_boll.get('width_state', 'N/A') }} | {{ weekly_boll.get('position', 'N/A') }} |
+
+**规则评分 {{ boll_data.get('score_version', 'v2') }}**：中期机会 {{ boll_data.get('medium_term_score', 'N/A') }}/100 | 进场时机 {{ boll_data.get('entry_timing_score', 'N/A') }}/100
+{% endif %}
+{% set portfolio_data = data_persp.get('portfolio_context', {}) %}
+{% if portfolio_data %}
+**💼 持仓身份**：{{ '已持仓' if portfolio_data.get('is_held') else '观察股' }}
+{% if portfolio_data.get('is_held') %}
+| 持仓数量 | 可卖底仓 | 当日买入 | 平均成本 | 浮动盈亏 |
+|------|------|------|------|------|
+| {{ portfolio_data.get('total_quantity', 0) }} | {{ portfolio_data.get('sellable_quantity', 0) }} | {{ portfolio_data.get('today_bought_quantity', 0) }} | {{ portfolio_data.get('avg_cost', 'N/A') }} | {{ portfolio_data.get('unrealized_pnl', 'N/A') }} |
+{% endif %}
+{% endif %}
 {% endif %}
 
 {% if battle %}

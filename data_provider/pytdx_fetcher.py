@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from typing import Optional, Generator, List, Tuple
 
 import pandas as pd
+import numpy as np
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -373,6 +374,46 @@ class PytdxFetcher(BaseFetcher):
                     raise
                 raise DataFetchError(f"Pytdx 获取数据失败: {e}") from e
     
+    def get_intraday_bars(
+        self,
+        stock_code: str,
+        *,
+        interval: str = "5m",
+        count: int = 240,
+    ) -> pd.DataFrame:
+        """Fetch A-share 5/15 minute bars through TDX."""
+        if _is_us_code(stock_code) or _is_hk_market(stock_code) or is_bse_code(stock_code):
+            raise DataFetchError(f"Pytdx 盘中K线首期仅支持沪深A股: {stock_code}")
+        categories = {"5m": 0, "15m": 1}
+        if interval not in categories:
+            raise ValueError("interval must be 5m or 15m")
+        market, code = self._get_market_code(stock_code)
+        with self._pytdx_session() as api:
+            data = api.get_security_bars(
+                category=categories[interval],
+                market=market,
+                code=code,
+                start=0,
+                count=max(20, min(int(count), 800)),
+            )
+            if not data:
+                raise DataFetchError(f"Pytdx 未查询到 {stock_code} 的 {interval} K线")
+            df = api.to_df(data).copy()
+        df["timestamp"] = pd.to_datetime(df["datetime"], errors="coerce")
+        df = df.rename(columns={"vol": "volume", "turnover": "amount"})
+        if "amount" not in df:
+            df["amount"] = np.nan
+        columns = ["timestamp", "open", "high", "low", "close", "volume", "amount"]
+        for column in columns[1:]:
+            df[column] = pd.to_numeric(df.get(column), errors="coerce")
+        return (
+            df[columns]
+            .dropna(subset=["timestamp", "close"])
+            .sort_values("timestamp")
+            .drop_duplicates(subset=["timestamp"], keep="last")
+            .reset_index(drop=True)
+        )
+
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
         标准化 Pytdx 数据

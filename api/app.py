@@ -174,9 +174,21 @@ async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     app.state.system_config_service = SystemConfigService()
     _schedule_stock_index_background_refresh(app, "startup")
+    from src.config import get_config
+    runtime_config = get_config()
+    if getattr(runtime_config, "intraday_monitor_enabled", False):
+        from src.services.intraday_monitor import IntradayMonitor
+        app.state.intraday_monitor_task = asyncio.create_task(
+            IntradayMonitor(runtime_config).run_forever()
+        )
     try:
         yield
     finally:
+        monitor_task = getattr(app.state, "intraday_monitor_task", None)
+        if monitor_task is not None and not monitor_task.done():
+            monitor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await monitor_task
         refresh_task = getattr(app.state, "stock_index_refresh_task", None)
         if refresh_task is not None and not refresh_task.done():
             refresh_task.cancel()

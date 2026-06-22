@@ -351,6 +351,7 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
+        portfolio_account_id=request.portfolio_account_id,
     )
     if skills is not None:
         submit_kwargs["skills"] = skills
@@ -438,6 +439,7 @@ def _handle_sync_analysis(
             query_id=query_id,
             send_notification=getattr(request, "notify", True),
             skills=getattr(request, "skills", None),
+            portfolio_account_id=request.portfolio_account_id,
         )
 
         if result is None:

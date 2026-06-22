@@ -77,6 +77,11 @@ class AnalyzeRequest(BaseModel):
         description="本次分析使用的策略 skill ID 列表；兼容 legacy strategies 字段",
         json_schema_extra={"example": ["bull_trend", "growth_quality"]},
     )
+    portfolio_account_id: Optional[int] = Field(
+        None,
+        ge=1,
+        description="可选持仓账户 ID；未指定时汇总全部启用账户",
+    )
 
     model_config = ConfigDict(json_schema_extra={
         "example": {

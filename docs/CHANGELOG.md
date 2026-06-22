@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [新功能] 新增日K/周K BOLL、双模块规则评分 v2 与固定报告展示，并将现有 Portfolio 持仓上下文注入个股分析。
+- [新功能] 新增 A 股 5分钟K持久化、15分钟本地聚合、双向做T观察状态机、REST API、常驻监控和 Web 持仓卡片；仅提供辅助建议，不自动下单。
+
 - [改进] AlphaSift 选股入口在 Web 侧边栏中移动到“问股”下方，贴近 Agent/研究辅助工作流。
 - [改进] Docker 镜像构建阶段预置默认 AlphaSift 适配层，与桌面发布包一样避免运行期额外安装。
 - [新功能] 新增默认关闭的 AlphaSift 选股页签，通过 `ALPHASIFT_ENABLED` 开启后经由稳定适配层读取策略并执行选股。

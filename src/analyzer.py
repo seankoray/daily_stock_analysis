@@ -3039,6 +3039,11 @@ class GeminiAnalyzer:
 | 量能状态 | {trend.get('volume_status', unknown_text)} | {trend.get('volume_trend', '')} |
 | 系统信号 | {trend.get('buy_signal', unknown_text)} | |
 | 系统评分 | {trend.get('signal_score', 0)}/100 | |
+| 中期机会分 | {trend.get('medium_term_score', 'N/A')}/100 | 规则评分v2 |
+| 进场时机分 | {trend.get('entry_timing_score', 'N/A')}/100 | 规则评分v2 |
+| 日K BOLL位置 | {(trend.get('daily_boll') or {}).get('position', 'N/A')} | {(trend.get('daily_boll') or {}).get('event', 'none')} |
+| 周K BOLL位置 | {(trend.get('weekly_boll') or {}).get('position', 'N/A')} | {'未完成周线' if (trend.get('weekly_boll') or {}).get('is_partial') else '完整周线'} |
+| BOLL共振 | {trend.get('boll_confluence', 'N/A')} | {trend.get('boll_summary', '')} |
 
 #### 系统分析理由
 **买入理由**：
@@ -3071,6 +3076,11 @@ class GeminiAnalyzer:
 | 量能状态 | {trend.get('volume_status', unknown_text)} | {trend.get('volume_trend', '')} |
 | 系统信号 | {trend.get('buy_signal', unknown_text)} | |
 | 系统评分 | {trend.get('signal_score', 0)}/100 | |
+| 中期机会分 | {trend.get('medium_term_score', 'N/A')}/100 | 规则评分v2 |
+| 进场时机分 | {trend.get('entry_timing_score', 'N/A')}/100 | 规则评分v2 |
+| 日K BOLL位置 | {(trend.get('daily_boll') or {}).get('position', 'N/A')} | {(trend.get('daily_boll') or {}).get('event', 'none')} |
+| 周K BOLL位置 | {(trend.get('weekly_boll') or {}).get('position', 'N/A')} | {'未完成周线' if (trend.get('weekly_boll') or {}).get('is_partial') else '完整周线'} |
+| BOLL共振 | {trend.get('boll_confluence', 'N/A')} | {trend.get('boll_summary', '')} |
 
 #### 系统分析理由
 **支持因素**：
