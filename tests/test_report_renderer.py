@@ -185,6 +185,48 @@ class TestReportRenderer(unittest.TestCase):
         self.assertIn("**筹码**: 筹码分布未启用或数据源暂不可用，未纳入筹码判断。", out)
         self.assertEqual(out.count("数据缺失，无法判断"), 0)
 
+    def test_render_markdown_shows_boll_and_three_scores(self) -> None:
+        r = _make_result(
+            dashboard={
+                "core_conclusion": {"one_sentence": "持有观望"},
+                "data_perspective": {
+                    "bollinger": {
+                        "summary": "日周趋势共振",
+                        "daily": {
+                            "lower": 9.2,
+                            "middle": 10.0,
+                            "upper": 10.8,
+                            "percent_b": 0.38,
+                            "width_state": "expanding",
+                            "position": "inside",
+                        },
+                        "weekly": {
+                            "lower": 8.0,
+                            "middle": 10.5,
+                            "upper": 13.0,
+                            "percent_b": 0.3,
+                            "width_state": "stable",
+                            "position": "inside",
+                            "is_partial": True,
+                        },
+                        "signal_score": 71,
+                        "medium_term_score": 76,
+                        "entry_timing_score": 64,
+                        "score_version": "v2",
+                    }
+                },
+            }
+        )
+
+        out = render("markdown", [r], summary_only=False)
+
+        self.assertIsNotNone(out)
+        self.assertIn("双周期 BOLL", out)
+        self.assertIn("综合评分", out)
+        self.assertIn("71/100", out)
+        self.assertIn("76/100", out)
+        self.assertIn("64/100", out)
+
     def test_render_unknown_platform_returns_none(self) -> None:
         """Unknown platform returns None (caller fallback)."""
         r = _make_result()

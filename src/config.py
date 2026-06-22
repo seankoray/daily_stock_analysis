@@ -825,7 +825,7 @@ class Config:
 
     # Report Engine P0: Jinja2 renderer and integrity checks
     report_templates_dir: str = "templates"  # Template directory (relative to project root)
-    report_renderer_enabled: bool = False  # Enable Jinja2 rendering (default off for zero regression)
+    report_renderer_enabled: bool = True  # 新版固定报告默认启用；可显式设为 false 回退旧报告
     report_integrity_enabled: bool = True  # Content integrity validation after LLM output
     report_integrity_retry: int = 1  # Retry count when mandatory fields missing (0 = placeholder only)
     report_history_compare_n: int = 0  # History comparison count (0 = disabled)
@@ -1639,7 +1639,7 @@ class Config:
             report_summary_only=os.getenv('REPORT_SUMMARY_ONLY', 'false').lower() == 'true',
             report_show_llm_model=report_show_llm_model,
             report_templates_dir=os.getenv('REPORT_TEMPLATES_DIR', 'templates'),
-            report_renderer_enabled=os.getenv('REPORT_RENDERER_ENABLED', 'false').lower() == 'true',
+            report_renderer_enabled=os.getenv('REPORT_RENDERER_ENABLED', 'true').lower() == 'true',
             report_integrity_enabled=os.getenv('REPORT_INTEGRITY_ENABLED', 'true').lower() == 'true',
             report_integrity_retry=parse_env_int(os.getenv('REPORT_INTEGRITY_RETRY'), 1, field_name='REPORT_INTEGRITY_RETRY', minimum=0),
             report_history_compare_n=parse_env_int(os.getenv('REPORT_HISTORY_COMPARE_N'), 0, field_name='REPORT_HISTORY_COMPARE_N', minimum=0),

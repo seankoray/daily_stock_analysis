@@ -115,7 +115,11 @@
 | 日K | {{ daily_boll.get('lower', 'N/A') }} | {{ daily_boll.get('middle', 'N/A') }} | {{ daily_boll.get('upper', 'N/A') }} | {{ daily_boll.get('percent_b', 'N/A') }} | {{ daily_boll.get('width_state', 'N/A') }} | {{ daily_boll.get('position', 'N/A') }} |
 | 周K{{ '（未完成）' if weekly_boll.get('is_partial') else '' }} | {{ weekly_boll.get('lower', 'N/A') }} | {{ weekly_boll.get('middle', 'N/A') }} | {{ weekly_boll.get('upper', 'N/A') }} | {{ weekly_boll.get('percent_b', 'N/A') }} | {{ weekly_boll.get('width_state', 'N/A') }} | {{ weekly_boll.get('position', 'N/A') }} |
 
-**规则评分 {{ boll_data.get('score_version', 'v2') }}**：中期机会 {{ boll_data.get('medium_term_score', 'N/A') }}/100 | 进场时机 {{ boll_data.get('entry_timing_score', 'N/A') }}/100
+**规则评分 {{ boll_data.get('score_version', 'v2') }}（未经收益回测校准）**
+
+| 综合评分 | 中期机会 | 进场时机 |
+|------|------|------|
+| {{ boll_data.get('signal_score', 'N/A') }}/100 | {{ boll_data.get('medium_term_score', 'N/A') }}/100 | {{ boll_data.get('entry_timing_score', 'N/A') }}/100 |
 {% endif %}
 {% set portfolio_data = data_persp.get('portfolio_context', {}) %}
 {% if portfolio_data %}

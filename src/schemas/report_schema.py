@@ -76,6 +76,7 @@ class BollingerData(BaseModel):
     weekly: Optional[Dict[str, Any]] = None
     confluence: Optional[str] = None
     summary: Optional[str] = None
+    signal_score: Optional[Union[int, float, str]] = None
     medium_term_score: Optional[Union[int, float, str]] = None
     entry_timing_score: Optional[Union[int, float, str]] = None
     score_version: Optional[str] = None

@@ -1223,6 +1223,7 @@ class StockAnalysisPipeline:
                 "weekly": trend_result.weekly_boll,
                 "confluence": trend_result.boll_confluence,
                 "summary": trend_result.boll_summary,
+                "signal_score": trend_result.signal_score,
                 "medium_term_score": trend_result.medium_term_score,
                 "entry_timing_score": trend_result.entry_timing_score,
                 "score_version": trend_result.score_version,
