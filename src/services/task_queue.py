@@ -411,8 +411,8 @@ class AnalysisTaskQueue:
                         report_type,
                         force_refresh,
                         notify,
-                        task_skills,
                         portfolio_account_id,
+                        task_skills,
                     )
                 except Exception:
                     # Roll back the current batch to avoid partial submission.
@@ -597,8 +597,8 @@ class AnalysisTaskQueue:
         report_type: str,
         force_refresh: bool,
         notify: bool = True,
-        skills: Optional[List[str]] = None,
         portfolio_account_id: Optional[int] = None,
+        skills: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         执行分析任务（在线程池中运行）

@@ -249,7 +249,8 @@ class StockAnalysisPipeline:
 
             # 从数据源获取数据
             logger.info(f"{stock_name}({code}) 开始从数据源获取数据...")
-            history_days = 180 if getattr(self.config, "boll_score_v2_enabled", True) else 30
+            config = getattr(self, "config", None)
+            history_days = 180 if getattr(config, "boll_score_v2_enabled", True) else 30
             df, source_name = self.fetcher_manager.get_daily_data(code, days=history_days)
 
             if df is None or df.empty:
@@ -387,10 +388,16 @@ class StockAnalysisPipeline:
                 code,
                 fundamental_context,
             )
-            portfolio_context = self.portfolio_context_service.get_stock_context(
-                code,
-                account_id=self.portfolio_account_id,
-            )
+            portfolio_context = None
+            portfolio_service = getattr(self, "portfolio_context_service", None)
+            if portfolio_service is not None:
+                try:
+                    portfolio_context = portfolio_service.get_stock_context(
+                        code,
+                        account_id=getattr(self, "portfolio_account_id", None),
+                    )
+                except Exception as e:
+                    logger.warning(f"{stock_name}({code}) 持仓上下文获取失败，按观察股继续: {e}")
 
             # P0: write-only snapshot, fail-open, no read dependency on this table.
             try:
@@ -1211,7 +1218,9 @@ class StockAnalysisPipeline:
         portfolio_context: Optional[Dict[str, Any]],
     ) -> None:
         """Persist deterministic technical/portfolio data alongside LLM output."""
-        if not isinstance(result.dashboard, dict):
+        if trend_result is None and not isinstance(portfolio_context, dict):
+            return
+        if not isinstance(getattr(result, "dashboard", None), dict):
             result.dashboard = {}
         data_perspective = result.dashboard.get("data_perspective")
         if not isinstance(data_perspective, dict):
