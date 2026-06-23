@@ -351,10 +351,12 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
-        portfolio_account_id=getattr(request, "portfolio_account_id", None),
     )
     if skills is not None:
         submit_kwargs["skills"] = skills
+    portfolio_account_id = getattr(request, "portfolio_account_id", None)
+    if portfolio_account_id is not None:
+        submit_kwargs["portfolio_account_id"] = portfolio_account_id
 
     accepted_tasks, duplicate_errors = task_queue.submit_tasks_batch(**submit_kwargs)
 
@@ -432,15 +434,18 @@ def _handle_sync_analysis(
     
     try:
         service = AnalysisService()
-        result = service.analyze_stock(
+        analyze_kwargs = dict(
             stock_code=stock_code,
             report_type=request.report_type,
             force_refresh=request.force_refresh,
             query_id=query_id,
             send_notification=getattr(request, "notify", True),
             skills=getattr(request, "skills", None),
-            portfolio_account_id=getattr(request, "portfolio_account_id", None),
         )
+        portfolio_account_id = getattr(request, "portfolio_account_id", None)
+        if portfolio_account_id is not None:
+            analyze_kwargs["portfolio_account_id"] = portfolio_account_id
+        result = service.analyze_stock(**analyze_kwargs)
 
         if result is None:
             error_message = service.last_error or f"分析股票 {stock_code} 失败"
